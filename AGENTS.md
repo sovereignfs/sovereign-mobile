@@ -107,9 +107,16 @@ Carried over from the `sovereign` monorepo and `sovereign-desktop`:
 - **ESLint 9 flat config.** Never disable rules inline without a comment
   explaining why. Prefix intentionally-unused identifiers with `_`.
 - **Branch per change**, from up-to-date `main`: `feat/<slug>`, `fix/<slug>`,
-  `docs/<slug>`, `chore/<slug>`.
+  `docs/<slug>`, `chore/<slug>`. **Current practice deviates**: bootstrap-
+  phase commits have gone directly to `main` at kasunben's explicit
+  instruction each time — see the note in
+  [CONTRIBUTING.md](CONTRIBUTING.md#branching-and-commits). Don't assume
+  this is a standing exception; confirm before skipping branch+PR on a new
+  change.
 - **Commits** end with the Claude Code attribution trailer (model-agnostic):
-  `Co-Authored-By: Claude Code <noreply@anthropic.com>`.
+  `Co-Authored-By: Claude Code <noreply@anthropic.com>`. (This was gotten
+  wrong once, in this repo's first commit — see git history and
+  `CONTRIBUTING.md`'s note. Don't substitute a specific model name.)
 - **PRs** target `main`, created as GitHub drafts first
   (`gh pr create --draft`); bodies end with
   `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.

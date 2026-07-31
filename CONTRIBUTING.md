@@ -105,6 +105,17 @@ git switch main && git pull
 git switch -c feat/your-feature-name
 ```
 
+> **Current practice, as of the repo's bootstrap phase (2026-07-31):** the
+> commits that scaffolded this repo (starting with `09174fd`) went directly
+> to `main`, skipping the branch+PR flow below, at kasunben's explicit
+> per-commit instruction each time — not a standing exception an agent
+> should assume applies by default. Asked explicitly whether to switch to
+> branch+PR immediately, kasunben chose to keep committing directly to
+> `main` for now. Treat branch+PR as the target model (matching
+> `sovereign`'s own workflow) and confirm with kasunben before reverting to
+> direct-to-`main` on a new change; update or remove this note once
+> branch+PR becomes the actual practice.
+
 **Branch prefixes:**
 
 | Prefix   | Use for                                         |
