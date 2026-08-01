@@ -100,14 +100,22 @@ platforms — see Verified below for exactly how this was caught.
   above) rather than forwarding. Re-verified after the fix: connect, app
   restart (loads saved instance directly), remove, re-add, and switch
   (tapping an existing instance row) all now correctly stay in this
-  shell's own WebView. The equivalent Android fix
-  (`NavigationPolicyWebViewClient.java` returning `false` directly instead
-  of forwarding to `super`) was applied by inspecting
-  `Bridge#launchIntent()`'s actual source and reasoning by exact analogy —
-  it has the same host-comparison shape as iOS's default handler — but is
-  **not** compile- or runtime-verified (this environment lacks the JDK
-  21+ Capacitor Android 8 requires, and has no Android SDK/emulator).
-- **Still not verified:** an actual cross-origin link click-through (every
-  test so far exercised the same-origin path, which is the one that was
-  broken; the cancel-and-open-externally branch for a genuinely different
-  origin has not been exercised against a real link in a loaded instance).
+  shell's own WebView.
+- **Verified on Android Emulator against the same real instance
+  (2026-08-02).** JDK 21 and the Android SDK/emulator (arm64-v8a,
+  API 34) were installed directly (not via Homebrew — this machine's
+  Homebrew Cellar had broken directory ownership requiring a `sudo chown`
+  only the machine owner can run) into this repo's gitignored
+  `.toolchain/`. `./gradlew assembleDebug` succeeded, and the identical
+  forwarding fix (`NavigationPolicyWebViewClient.java` returning `false`
+  directly instead of forwarding to `super`/`Bridge#launchIntent()`) was
+  confirmed correct at runtime, not just by code inspection: connect,
+  restart (loads saved instance directly), and the same-origin case
+  staying in-app (`topResumedActivity` / `dumpsys` confirmed
+  `fs.sovereign.mobile/.MainActivity` stayed foreground, not a browser)
+  were all reproduced on-device, matching iOS.
+- **Still not verified:** an actual cross-origin link click-through on
+  either platform (every test so far exercised the same-origin path,
+  which is the one that was broken; the cancel-and-open-externally branch
+  for a genuinely different origin has not been exercised against a real
+  link in a loaded instance).

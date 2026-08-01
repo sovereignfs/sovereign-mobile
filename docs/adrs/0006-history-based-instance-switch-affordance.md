@@ -110,6 +110,35 @@ plugin doesn't already cover" rule.
   fix above: swiping back from a loaded instance reliably shows the
   instance manager (list, remove, add-another-instance form) rather than a
   dead splash screen, repeatably across multiple connect/back/reconnect
-  cycles. Android's hardware-back equivalent relies on the same
-  `main.ts` logic (it's TypeScript, not native) but has not been run on an
-  actual Android device or emulator in this environment.
+  cycles.
+- **Inconclusive on Android Emulator (2026-08-02) — not confirmed working,
+  not confirmed broken.** Tested against the same real instance on a fresh
+  arm64-v8a API 34 AVD. Results were inconsistent enough that none of them
+  should be trusted as the answer on their own:
+  - One attempt clearly reached the app (logcat showed `boot()` re-running
+    and calling `Preferences.get('sovereign.activeUrl')`) and then hung
+    indefinitely — the plugin call never returned, leaving the splash
+    frozen. This coincided with the emulator's WebView sandboxed renderer
+    process (`com.google.android.webview:sandboxed_process0`) being
+    killed and respawned around the same time, visible in `logcat`, which
+    points at emulator/renderer instability rather than a logic bug in
+    `main.ts` — but this isn't proven either way.
+  - Several later attempts (`adb shell input keyevent KEYCODE_BACK`, both
+    single and repeated presses, plus an edge-swipe via
+    `adb shell input swipe`) never reached the app at all —
+    `GoogleInputMethodService` logged consuming the back-key event first
+    every time, and no `Capacitor`-tagged log line appeared afterward.
+    Whether that's a genuine platform/IME behavior or an artifact of
+    synthetic `adb input` injection (as opposed to a real touchscreen
+    edge-swipe) is unresolved.
+  - A same-session retest with a demonstrably healthy, freshly-restarted
+    app process still produced no observable navigation on either input
+    method.
+  - **Net effect:** unlike the navigation-policy bug (ADR 0007), which was
+    cleanly reproduced, root-caused, fixed, and re-verified on both
+    platforms, this affordance's Android behavior was not pinned down.
+    Treat "does the Android back button reach the instance manager" as an
+    **open question**, not a confirmed pass or a confirmed regression —
+    real-device testing (not this environment's headless `adb input`
+    injection) is the credible way to resolve it, consistent with the
+    Risks section of [docs/epics/shell.md](../epics/shell.md).

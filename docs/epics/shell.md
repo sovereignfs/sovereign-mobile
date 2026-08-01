@@ -72,49 +72,72 @@ monorepo task) ships — see
 - Offline scope comes from [research 0003](../research/0003-webview-offline-behavior.md)'s
   finding, not from optimism.
 
-**Review checklist — status as of 2026-08-01, tested against a real
-instance (`sovereign.openfs.io`) on iOS Simulator:**
+**Review checklist — status as of 2026-08-02, tested against a real
+instance (`sovereign.openfs.io`) on both iOS Simulator and Android
+Emulator:**
 
 - ✅ App opens in iOS Simulator — built with `xcodebuild` against the real
   Capacitor 8.4.2 SPM package, installed and launched via `xcrun simctl` on
   two separate simulator instances (iPhone 17, iPhone 17 Pro).
-- ❌ Android Emulator — **not verified in this environment.** `npx cap add
-android` succeeded and the Java source compiles against Capacitor's real
-  API surface (confirmed by reading the actual `com.getcapacitor` sources
-  resolved locally), but `./gradlew compileDebugJavaWithJavac` fails with
-  `invalid source release: 21` — this machine has JDK 17, Capacitor Android
-  8 requires JDK 21+ (documented in [CONTRIBUTING.md](../../CONTRIBUTING.md)).
-  No Android SDK or emulator is installed here either. Needs a properly
-  provisioned Android dev machine.
+- ✅ App opens in Android Emulator — this environment had no JDK 21 or
+  Android SDK at all; both were installed directly into this repo's
+  gitignored `.toolchain/` (not via Homebrew — this machine's Homebrew
+  Cellar has broken directory ownership requiring a `sudo chown` only the
+  machine owner can run, so JDK 21 and the SDK cmdline-tools were
+  downloaded and extracted directly instead). `./gradlew assembleDebug`
+  **succeeded** against the real Capacitor Android 8.4.2 API. Built,
+  installed, and launched on a freshly created arm64-v8a API 34 AVD via
+  `adb`.
 - ✅ First launch shows instance URL onboarding — confirmed by screenshot
-  and by successfully connecting to a real instance.
-- ✅ A valid saved instance loads in the WebView on restart — verified:
-  terminated and relaunched the app after connecting; it loaded
-  `sovereign.openfs.io`'s real sign-in page directly, no onboarding shown.
-- ✅ Users can add, remove, and switch between at least two instances — all
-  three flows individually verified by tap: Connect (add), ✕ (remove,
-  correctly reverts to first-launch copy when the list empties), and
-  tapping an existing instance row (switch). Only one real instance was
-  available to test with, so "switch **between** two" specifically wasn't
-  exercised — the underlying code path (`setActiveUrl` + `loadInstance`) is
-  identical regardless of how many instances are stored.
+  on both platforms, and by successfully connecting to a real instance on
+  both.
+- ✅ A valid saved instance loads in the WebView on restart — verified on
+  both platforms: force-stopped and relaunched the app after connecting;
+  it loaded `sovereign.openfs.io`'s real sign-in page directly, no
+  onboarding shown.
+- 🟡 Users can add, remove, and switch between at least two instances —
+  **fully verified on iOS** (Connect/add, ✕/remove, row-tap/switch all
+  confirmed). **Only partially verified on Android**: add (Connect) and
+  the underlying same-origin navigation are confirmed; remove and
+  row-tap/switch could not be exercised because reaching the instance
+  manager a second time depends on back-navigation, which is the
+  unresolved item below. Only one real instance was available to test
+  with on either platform, so "switch **between** two" specifically wasn't
+  exercised anywhere — the underlying code path (`setActiveUrl` +
+  `loadInstance`) is identical regardless of how many instances are
+  stored.
 - ✅ External links do not silently navigate the primary WebView away from
-  the configured instance — **found and fixed a real bug in the process**:
-  see [ADR 0007](../adrs/0007-navigation-policy-enforcement.md)'s Verified
+  the configured instance — **found and fixed a real bug in the process,
+  confirmed on both platforms**: see
+  [ADR 0007](../adrs/0007-navigation-policy-enforcement.md)'s Verified
   section. The same-origin case was being forwarded to Capacitor's own
-  default handler, which redirected it externally — the exact opposite of
-  what RFC 0058 requires. Fixed on iOS and re-verified (connect, restart,
-  remove, re-add, switch all now correctly stay in-app). The identical fix
-  was applied to Android's `NavigationPolicyWebViewClient.java` by code
-  inspection (same bug shape, confirmed by reading `Bridge#launchIntent()`'s
-  actual source) but is not compile- or runtime-verified there. The
-  cross-origin (cancel + open externally) branch itself is still not
-  click-tested against a real external link.
+  default handler on both iOS and Android, which redirected it externally
+  — the exact opposite of what RFC 0058 requires. Fixed and re-verified on
+  both: connect, restart, and (on iOS) remove/re-add/switch all correctly
+  stay in-app; on Android, `dumpsys activity activities` confirmed
+  `fs.sovereign.mobile/.MainActivity` stayed the foreground activity
+  through the same flow. The cross-origin (cancel + open externally)
+  branch itself is still not click-tested against a real external link on
+  either platform.
+- 🟡 The history-based back-navigation instance-switch affordance
+  ([ADR 0006](../adrs/0006-history-based-instance-switch-affordance.md))
+  — **confirmed working on iOS**, repeatably. **Inconclusive on Android**:
+  testing via `adb shell input keyevent KEYCODE_BACK` and an edge-swipe
+  gesture produced inconsistent results (one run reached the app and then
+  hung on a native plugin call, coinciding with the emulator's WebView
+  renderer process being killed/respawned in the logs; several other runs
+  never reached the app at all, apparently consumed by the system IME
+  layer first). See ADR 0006's Consequences section for the full detail —
+  this needs a real device or a more interactive test session to resolve,
+  not headless `adb input` injection.
 - ✅ No Sovereign auth, role, or plugin behavior is duplicated in native
   code — true by construction; nothing in this scaffold touches auth (no
-  credentials were entered into the loaded instance during testing).
-- ❌ Real **physical device** verification — not done; simulator only, as
-  expected at this stage. See Risks.
+  credentials were entered into the loaded instance during testing — a
+  human tester supplied test credentials mid-session and was told those
+  can't be typed in by the agent, per a hard rule against entering
+  credentials into any field).
+- ❌ Real **physical device** verification — not done; simulator/emulator
+  only, as expected at this stage. See Risks.
 
 **Implementation notes from this pass, for whoever picks this up next:**
 
@@ -155,7 +178,29 @@ android` succeeded and the Java source compiles against Capacitor's real
   further downscaled for display) silently taps outside the visible area
   or the wrong element with no error — this cost real time before being
   diagnosed by comparing a screenshot's actual `sips`-reported pixel
-  dimensions against the tool's stated point space.
+  dimensions against the tool's stated point space. `adb shell input tap`
+  on Android, by contrast, wants raw device pixels directly (e.g.
+  1080×2400), not points — the two toolchains don't share a coordinate
+  convention.
+- **Getting Android building at all required bypassing Homebrew entirely**
+  in this environment: its Cellar had broken directory ownership
+  (`brew install` demanded a `sudo chown` this agent can't run). JDK 21
+  (Eclipse Temurin, via Adoptium's API) and the Android SDK cmdline-tools
+  (Google's direct zip distribution) were downloaded and extracted
+  straight into this repo's `.toolchain/` (gitignored, ~6GB) instead —
+  `sdkmanager`/`avdmanager`/`gradlew` all invoked with `JAVA_HOME`/
+  `ANDROID_HOME` pointed at that directory rather than any system
+  install. `android/local.properties` (gitignored) points `sdk.dir` at
+  the same place. None of this is portable to another machine as-is; a
+  real dev environment should just install JDK 21 and Android Studio
+  normally.
+- **Capacitor's Android bridge logs plugin calls and console messages to
+  logcat by default** (tags `Capacitor`, `Capacitor/Console`,
+  `Capacitor/Plugin`) — genuinely useful for headless debugging without
+  Chrome remote-debugging, which isn't available in a fully headless
+  environment. `adb logcat -d | grep -iE "chromium|console|capacitor"` was
+  how both the navigation-policy bug and the back-navigation hang were
+  actually diagnosed here, not guessed at.
 
 ## Risks
 
