@@ -63,18 +63,30 @@ extension MainViewController: WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? false
-        guard
-            isMainFrame,
-            let url = navigationAction.request.url,
-            let scheme = url.scheme, scheme == "http" || scheme == "https",
-            let activeOrigin = MainViewController.activeInstanceOrigin(),
-            let activeURL = URL(string: activeOrigin)
-        else {
-            // Non-http(s) requests (capacitor:// bridge traffic, etc.), no
-            // stored instance yet (still onboarding), or a malformed active
-            // origin — defer to Capacitor's own handler.
+        guard let url = navigationAction.request.url,
+              let scheme = url.scheme, scheme == "http" || scheme == "https" else {
+            // Non-http(s) requests (capacitor:// bridge traffic, etc.) are
+            // Capacitor's own concern — forward to its real handler rather
+            // than deciding ourselves.
             forwardDecidePolicy(webView, navigationAction, decisionHandler)
+            return
+        }
+
+        guard navigationAction.targetFrame?.isMainFrame ?? false else {
+            // Sub-frame http(s) navigation (an iframe inside the loaded
+            // instance) is the instance's own business, not this shell's
+            // policy to enforce — allow directly.
+            decisionHandler(.allow)
+            return
+        }
+
+        guard let activeOrigin = MainViewController.activeInstanceOrigin(),
+              let activeURL = URL(string: activeOrigin) else {
+            // No active instance recorded yet. In practice this only
+            // precedes the very first navigation *to* a freshly-added
+            // instance, so allow it directly — do NOT forward to
+            // Capacitor's own handler here (see below).
+            decisionHandler(.allow)
             return
         }
 
@@ -82,7 +94,18 @@ extension MainViewController: WKNavigationDelegate {
             url.scheme == activeURL.scheme && url.host == activeURL.host && url.port == activeURL.port
 
         if sameOrigin {
-            forwardDecidePolicy(webView, navigationAction, decisionHandler)
+            // Decide this ourselves — do not forward to Capacitor's own
+            // handler. Capacitor's default WebViewDelegationHandler treats
+            // any main-frame navigation away from its bundled local
+            // content as "external" and hands it to the system browser
+            // (confirmed empirically: forwarding this exact case sent the
+            // freshly-onboarded instance to Safari instead of loading it
+            // in this WebView). That default is right for a normal
+            // Capacitor app whose real content is bundled locally, but
+            // wrong here — this shell's entire purpose is to load a
+            // user-chosen remote origin as primary content, per
+            // docs/adrs/0005-server-url-not-bundled-assets.md.
+            decisionHandler(.allow)
             return
         }
 

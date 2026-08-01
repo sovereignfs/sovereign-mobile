@@ -72,40 +72,47 @@ monorepo task) ships — see
 - Offline scope comes from [research 0003](../research/0003-webview-offline-behavior.md)'s
   finding, not from optimism.
 
-**Review checklist — status as of this implementation pass (2026-07-31):**
+**Review checklist — status as of 2026-08-01, tested against a real
+instance (`sovereign.openfs.io`) on iOS Simulator:**
 
 - ✅ App opens in iOS Simulator — built with `xcodebuild` against the real
   Capacitor 8.4.2 SPM package, installed and launched via `xcrun simctl` on
-  two separate simulator instances (iPhone 17, iPhone 17 Pro), confirmed via
-  screenshot plus WebKit's own `didGeneratePageLoadTiming` log line (not
-  just process-alive).
+  two separate simulator instances (iPhone 17, iPhone 17 Pro).
 - ❌ Android Emulator — **not verified in this environment.** `npx cap add
 android` succeeded and the Java source compiles against Capacitor's real
   API surface (confirmed by reading the actual `com.getcapacitor` sources
   resolved locally), but `./gradlew compileDebugJavaWithJavac` fails with
   `invalid source release: 21` — this machine has JDK 17, Capacitor Android
-  8 requires JDK 21+ (now documented in
-  [CONTRIBUTING.md](../../CONTRIBUTING.md)). No Android SDK or emulator is
-  installed here either. Needs a properly provisioned Android dev machine.
-- ✅ First launch shows instance URL onboarding — confirmed by screenshot:
-  title, subtitle, labeled URL input (auto-focused, keyboard shown), submit
-  button reading "Connect" for the first-launch case.
-- ❌ A valid saved instance loads in the WebView on restart — not exercised;
-  needs a reachable Sovereign instance to validate against, not attempted
-  this pass.
-- ❌ Users can add, remove, and switch between at least two instances — UI
-  code is written and unit-adjacent logic (`store.ts`) is exercised only
-  indirectly (no direct native-storage integration test); not exercised
-  end-to-end on-device.
-- ❓ External links do not silently navigate the primary WebView away from
-  the configured instance — **the enforcing code compiles successfully**
-  (`MainViewController.swift`'s `WKNavigationDelegate` forwarding, see
-  [ADR 0007](../adrs/0007-navigation-policy-enforcement.md)) but the actual
-  cancel-and-open-externally behavior has not been click-tested on-device.
-  Android's equivalent (`NavigationPolicyWebViewClient.java`) is
-  compile-unverified (see Android note above).
+  8 requires JDK 21+ (documented in [CONTRIBUTING.md](../../CONTRIBUTING.md)).
+  No Android SDK or emulator is installed here either. Needs a properly
+  provisioned Android dev machine.
+- ✅ First launch shows instance URL onboarding — confirmed by screenshot
+  and by successfully connecting to a real instance.
+- ✅ A valid saved instance loads in the WebView on restart — verified:
+  terminated and relaunched the app after connecting; it loaded
+  `sovereign.openfs.io`'s real sign-in page directly, no onboarding shown.
+- ✅ Users can add, remove, and switch between at least two instances — all
+  three flows individually verified by tap: Connect (add), ✕ (remove,
+  correctly reverts to first-launch copy when the list empties), and
+  tapping an existing instance row (switch). Only one real instance was
+  available to test with, so "switch **between** two" specifically wasn't
+  exercised — the underlying code path (`setActiveUrl` + `loadInstance`) is
+  identical regardless of how many instances are stored.
+- ✅ External links do not silently navigate the primary WebView away from
+  the configured instance — **found and fixed a real bug in the process**:
+  see [ADR 0007](../adrs/0007-navigation-policy-enforcement.md)'s Verified
+  section. The same-origin case was being forwarded to Capacitor's own
+  default handler, which redirected it externally — the exact opposite of
+  what RFC 0058 requires. Fixed on iOS and re-verified (connect, restart,
+  remove, re-add, switch all now correctly stay in-app). The identical fix
+  was applied to Android's `NavigationPolicyWebViewClient.java` by code
+  inspection (same bug shape, confirmed by reading `Bridge#launchIntent()`'s
+  actual source) but is not compile- or runtime-verified there. The
+  cross-origin (cancel + open externally) branch itself is still not
+  click-tested against a real external link.
 - ✅ No Sovereign auth, role, or plugin behavior is duplicated in native
-  code — true by construction; nothing in this scaffold touches auth.
+  code — true by construction; nothing in this scaffold touches auth (no
+  credentials were entered into the loaded instance during testing).
 - ❌ Real **physical device** verification — not done; simulator only, as
   expected at this stage. See Risks.
 
@@ -130,6 +137,25 @@ android` succeeded and the Java source compiles against Capacitor's real
   was used instead of the `WKNavigationDelegate` protocol existential
   (Swift's `@objc optional` protocol-method dispatch is ambiguous for
   `decidePolicyFor`'s overload set).
+- **Never forward a same-origin navigation decision to Capacitor's own
+  default handler on either platform** — see
+  [ADR 0007](../adrs/0007-navigation-policy-enforcement.md). Its defaults
+  assume the app's real content is bundled locally and will redirect a
+  runtime-chosen remote origin externally, which is exactly backwards for
+  this shell.
+- **The local onboarding page needs explicit `pageshow`/`back_forward`
+  handling to work when returned to via back-navigation** — a bfcache
+  restore doesn't re-run `main.ts`'s boot script, and even a fresh reload
+  of it would immediately redirect forward again without this. See
+  [ADR 0006](../adrs/0006-history-based-instance-switch-affordance.md).
+- **When testing interactively via the iOS Simulator MCP tool, `tap`/`swipe`
+  coordinates are in _points_ (e.g. 402×874 for iPhone 17 Pro — the tool
+  states the exact space per device), not screenshot pixels.** Using
+  pixel-scale coordinates from a viewed screenshot (which may itself be
+  further downscaled for display) silently taps outside the visible area
+  or the wrong element with no error — this cost real time before being
+  diagnosed by comparing a screenshot's actual `sips`-reported pixel
+  dimensions against the tool's stated point space.
 
 ## Risks
 

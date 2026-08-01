@@ -41,8 +41,9 @@ instance. Standard platform back navigation then returns to it for free:
   hardware back button through the WebView's history stack before falling
   back to exiting the app — no custom code needed.
 - **iOS:** WKWebView's `allowsBackForwardNavigationGestures` (edge-swipe)
-  is enabled in `ios/App/App/AppDelegate.swift`, the one deliberate native
-  touch this task adds.
+  is enabled in `MainViewController.swift`'s `capacitorDidLoad()` (not
+  `AppDelegate.swift` — that file is unmodified; the bridge view controller
+  subclass is where the live `webView` instance is actually reachable).
 
 The result: swiping back (iOS) or pressing hardware/gesture back (Android)
 from the root of a loaded instance returns to this shell's instance list,
@@ -60,6 +61,36 @@ exactly where a user switching instances wants to land.
   `WKUserScript`/`evaluateJavascript` injection pipeline that doesn't exist
   yet — more machinery than the outcome justifies here.
 
+### The local page must actively handle being returned to, not just exist
+
+Getting `location.assign()` and `allowsBackForwardNavigationGestures` right
+was not sufficient on its own — confirmed by testing the actual gesture
+against a real instance, twice over, for two distinct reasons layered on
+top of each other:
+
+1. **WKWebView's back/forward cache (bfcache) restores the local page's DOM
+   exactly as it was left, without re-running `main.ts`'s top-level
+   `void boot()` call.** Since `boot()` had already run to completion (and
+   called `location.assign`) before the page was navigated away from, a
+   bfcache-restored view showed only the frozen `<p class="splash">`
+   markup forever — inert, no redirect, no instance list, nothing. The
+   standard fix is listening for `pageshow` and checking
+   `event.persisted`, which is `true` exactly when the page came back from
+   bfcache rather than a fresh load.
+2. **Even without bfcache, `boot()`'s own logic didn't know a load was
+   reached by going _back_.** Nothing sets `?manage=1` on a plain back
+   navigation, so a fresh (non-bfcache) reload of the local page would see
+   `activeUrl !== null && !manage` and immediately redirect forward again —
+   bouncing the user straight back to the instance they just tried to
+   leave, defeating the entire affordance. Fixed by checking the
+   Navigation Timing API's `performance.getEntriesByType('navigation')[0].type`
+   for `'back_forward'` and treating that the same as `?manage=1`: skip the
+   redirect, render the instance manager instead.
+
+Both fixes live in `src/main.ts`. Neither is native code — this remains a
+TypeScript-only fix, consistent with the "native only for glue a Capacitor
+plugin doesn't already cover" rule.
+
 ## Consequences
 
 - **This is the shell's entire "switch instance while an instance is
@@ -68,9 +99,17 @@ exactly where a user switching instances wants to land.
   support/usability problem once real users are on it (see
   [ROADMAP.md](../../ROADMAP.md) — nothing currently tracks a follow-up
   task for this, since it's unverified need, not a known gap).
-- Requires the one line of native customization to `AppDelegate.swift`
+- Requires the one line of native customization to `MainViewController.swift`
   described above; Android needs no equivalent change.
 - Any future feature that also wants to navigate the WebView (e.g. a
   future deep-link handler) must also use `assign`, not `replace`, or it
   will silently break this affordance by clobbering the history entry the
   back gesture depends on.
+- **Verified working on iOS Simulator (2026-08-01)** against a real
+  instance (`sovereign.openfs.io`), after the `pageshow`/`back_forward`
+  fix above: swiping back from a loaded instance reliably shows the
+  instance manager (list, remove, add-another-instance form) rather than a
+  dead splash screen, repeatably across multiple connect/back/reconnect
+  cycles. Android's hardware-back equivalent relies on the same
+  `main.ts` logic (it's TypeScript, not native) but has not been run on an
+  actual Android device or emulator in this environment.

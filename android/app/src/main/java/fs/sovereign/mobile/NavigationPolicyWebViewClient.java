@@ -41,13 +41,19 @@ public class NavigationPolicyWebViewClient extends BridgeWebViewClient {
         boolean isHttpOrHttps = "http".equals(scheme) || "https".equals(scheme);
 
         if (!request.isForMainFrame() || !isHttpOrHttps) {
+            // Non-http(s) requests (tel:, mailto:, etc.) are Capacitor's own
+            // concern — forward to its real handler rather than deciding
+            // ourselves.
             return super.shouldOverrideUrlLoading(view, request);
         }
 
         String activeOrigin = activeInstanceOrigin(view.getContext());
         if (activeOrigin == null) {
-            // No active instance yet (still onboarding) — nothing to enforce.
-            return super.shouldOverrideUrlLoading(view, request);
+            // No active instance recorded yet. In practice this only
+            // precedes the very first navigation *to* a freshly-added
+            // instance, so let it load directly — do NOT forward to
+            // super/bridge.launchIntent() here (see below).
+            return false;
         }
 
         Uri activeUri = Uri.parse(activeOrigin);
@@ -58,7 +64,23 @@ public class NavigationPolicyWebViewClient extends BridgeWebViewClient {
                 && url.getPort() == activeUri.getPort();
 
         if (sameOrigin) {
-            return super.shouldOverrideUrlLoading(view, request);
+            // Decide this ourselves — do not forward to
+            // super.shouldOverrideUrlLoading(), which delegates to
+            // Bridge#launchIntent(). That compares the URL's host against
+            // Capacitor's own configured app host (localhost) and the
+            // static server.allowNavigation list, neither of which knows
+            // about this shell's runtime-chosen active instance — so it
+            // would hand the load off to an external Intent (the default
+            // browser) instead of loading it in this WebView. Confirmed
+            // empirically on the iOS side (identical bug in
+            // MainViewController.swift, fixed the same way): forwarding
+            // this exact case sent a freshly-onboarded instance to Safari
+            // instead of loading it in-app. That default is right for a
+            // normal Capacitor app whose real content is bundled locally,
+            // but wrong here — this shell's entire purpose is to load a
+            // user-chosen remote origin as primary content, per
+            // docs/adrs/0005-server-url-not-bundled-assets.md.
+            return false;
         }
 
         Intent intent = new Intent(Intent.ACTION_VIEW, url);

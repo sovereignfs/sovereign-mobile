@@ -28,20 +28,44 @@ instance to list.
 
 A thin native delegate on each platform intercepts WebView navigation and
 decides same-origin (allow, stays in the WebView) vs. cross-origin (cancel,
-open via `@capacitor/browser`'s `Browser.open()` instead):
+open via the system browser instead):
 
-- **iOS:** `AppDelegate.swift` sets `bridge?.webView?.navigationDelegate`
-  (or subclasses the bridge view controller's delegate methods) to
-  implement `webView(_:decidePolicyFor:decisionHandler:)`, comparing the
-  navigation's target origin against the shell's currently active instance
-  origin.
-- **Android:** `MainActivity.kt` overrides the bridge's `WebViewClient`
-  (`shouldOverrideUrlLoading`) with the same origin comparison.
+- **iOS:** `MainViewController.swift` (a `CAPBridgeViewController` subclass,
+  wired in via `Main.storyboard`'s `customClass`) takes over as
+  `webView.navigationDelegate` itself and implements
+  `webView(_:decidePolicyFor:decisionHandler:)`, comparing the navigation's
+  target origin against the shell's currently active instance origin. It
+  keeps a typed reference to Capacitor's own original
+  `WebViewDelegationHandler` and forwards every selector it doesn't
+  implement back to it (standard Foundation proxy-forwarding via
+  `responds(to:)`/`forwardingTarget(for:)`) so Capacitor's own navigation
+  lifecycle handling keeps working for everything this class doesn't care
+  about. Cross-origin loads are opened via `UIApplication.shared.open(_:)`.
+- **Android:** `NavigationPolicyWebViewClient.java` (a `BridgeWebViewClient`
+  subclass, installed from `MainActivity.java`'s overridden `load()`) does
+  the same origin comparison in `shouldOverrideUrlLoading`. Cross-origin
+  loads are opened via an `ACTION_VIEW` `Intent`.
 
 The active origin is read from `@capacitor/preferences`' `sovereign.activeUrl`
 key (the same storage `store.ts` already writes), so native code has no
 separate source of truth to keep in sync — it reads exactly what the TS
 shell already persists.
+
+### A same-origin load must be decided directly, never forwarded
+
+The load-bearing detail, found only by testing against a real instance (see
+Verified below): for the same-origin case, **do not** forward the decision
+to Capacitor's own original handler (iOS: `WebViewDelegationHandler`;
+Android: `BridgeWebViewClient.shouldOverrideUrlLoading` via `super`, which
+calls `Bridge#launchIntent()`). Both of Capacitor's own defaults compare the
+navigation's host against the app's _configured_ host (`localhost` / the
+bundled local scheme) and the static `server.allowNavigation` list — neither
+of which has any notion of this shell's runtime-chosen active instance. The
+practical effect: forwarding the same-origin case sent the very instance
+this shell exists to load out to the system browser instead of the app's
+own WebView, on both platforms, via the identical mechanism. This shell must
+call `.allow` / return `false` directly for the same-origin case on both
+platforms — see Verified below for exactly how this was caught.
 
 ## Rejected alternatives
 
@@ -63,10 +87,27 @@ shell already persists.
   or where the active origin is stored — a change to `store.ts`'s
   `KEY_ACTIVE_URL` key name breaks native enforcement silently unless
   both platform files are updated in the same change.
-- **Not yet verified on-device** — task 20.1's implementation adds the
-  code; the "external links do not silently navigate the primary WebView
-  away from the configured instance" review-checklist item in
-  [docs/epics/shell.md](../epics/shell.md) still needs a physical-device
-  or simulator click-through pass to confirm the delegate actually fires
-  before this is called done. See Risks in that file — real-device
-  verification is a documented human handoff for this repo generally.
+- **Verified on iOS Simulator against a real instance (2026-08-01),
+  `sovereign.openfs.io`.** The first implementation had exactly the
+  forwarding bug described above: connecting to a real instance from
+  onboarding sent it to Safari instead of loading it in-app. Root-caused by
+  reading Capacitor's actual resolved `Capacitor.swiftinterface` (not
+  guessed) — `CAPBridgeViewController` doesn't conform to
+  `WKNavigationDelegate` itself, Capacitor installs a separate
+  `WebViewDelegationHandler`, and _that_ object's default policy is what
+  redirected the load externally once this shell's delegate forwarded to
+  it. Fixed by deciding `.allow` directly for the same-origin case (see
+  above) rather than forwarding. Re-verified after the fix: connect, app
+  restart (loads saved instance directly), remove, re-add, and switch
+  (tapping an existing instance row) all now correctly stay in this
+  shell's own WebView. The equivalent Android fix
+  (`NavigationPolicyWebViewClient.java` returning `false` directly instead
+  of forwarding to `super`) was applied by inspecting
+  `Bridge#launchIntent()`'s actual source and reasoning by exact analogy —
+  it has the same host-comparison shape as iOS's default handler — but is
+  **not** compile- or runtime-verified (this environment lacks the JDK
+  21+ Capacitor Android 8 requires, and has no Android SDK/emulator).
+- **Still not verified:** an actual cross-origin link click-through (every
+  test so far exercised the same-origin path, which is the one that was
+  broken; the cancel-and-open-externally branch for a genuinely different
+  origin has not been exercised against a real link in a loaded instance).
