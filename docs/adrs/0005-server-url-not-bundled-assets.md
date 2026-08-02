@@ -26,10 +26,21 @@ Point Capacitor's `server.url` at the user's remote instance over `https`.
 
 ## Rejected alternatives
 
-- **Bundled local assets over `capacitor://`.** Service workers require an
-  `https` document; the `capacitor://` custom scheme yields **no service
-  worker at all**, which would foreclose offline behavior entirely and
-  contradicts the load-bearing constraint this ADR exists to protect.
+- **Bundled local assets over `capacitor://`.** Service workers require a
+  secure-context document. On iOS, the `capacitor://` custom scheme yields
+  **no service worker at all** — `navigator.serviceWorker` isn't even
+  exposed, confirmed empirically by
+  [sovereign research 0008](https://github.com/sovereignfs/sovereign/blob/main/docs/research/0008-wkwebview-android-webview-offline-spike.md).
+  This foreclosing-offline-entirely outcome is the load-bearing reason this
+  ADR exists. **Correction (2026-08-02):** that same research also found
+  this is iOS-specific, not a cross-platform fact as originally stated
+  here — Android's default bundled scheme (`androidScheme: "https"`, i.e.
+  `https://localhost`) **does** support service workers. This doesn't
+  change the decision (see Consequences: the real justification is
+  [ADR 0002](0002-universal-one-binary-distribution.md)'s "no baked-in
+  instance," which applies regardless of what either platform's bundled
+  scheme supports — a self-hosted, runtime-chosen instance genuinely
+  cannot be baked into a build), only this stated rationale.
 
 ## Consequences
 
