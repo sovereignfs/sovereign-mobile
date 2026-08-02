@@ -51,9 +51,10 @@ WebView loading, navigation policy, and multiple-instance switching.
 - Document required local tooling: Node, pnpm, Xcode, Android Studio,
   CocoaPods, Capacitor CLI (see [CONTRIBUTING.md](../../CONTRIBUTING.md)).
 
-**Dependencies:** Sovereign RFC 0058. Validates against `/api/health` until
+**Dependencies:** Sovereign RFC 0058. Validated against `/api/health` until
 sovereign epic task 20.2 (instance validation endpoint, a `sovereign`
-monorepo task) ships — see
+monorepo task) shipped; now validates against the richer `/api/instance`
+endpoint it added — see
 [ADR 0002](../adrs/0002-universal-one-binary-distribution.md).
 
 **Technical notes:**
@@ -96,16 +97,18 @@ Emulator:**
   it loaded `sovereign.openfs.io`'s real sign-in page directly, no
   onboarding shown.
 - 🟡 Users can add, remove, and switch between at least two instances —
-  **fully verified on iOS** (Connect/add, ✕/remove, row-tap/switch all
-  confirmed). **Only partially verified on Android**: add (Connect) and
+  **fully verified on iOS**, now including "switch **between** two" itself
+  (2026-08-02, task 20.2 verification pass): added `sovereign.openfs.io`
+  and a local `sovereign` dev server (`http://localhost:3000`) as two real
+  instances side by side, confirmed both listed with their real names
+  (`sovereign.openfs.io`, `Sovereign`) via `/api/instance`, and removed the
+  second cleanly. **Only partially verified on Android**: add (Connect) and
   the underlying same-origin navigation are confirmed; remove and
-  row-tap/switch could not be exercised because reaching the instance
-  manager a second time depends on back-navigation, which is the
-  unresolved item below. Only one real instance was available to test
-  with on either platform, so "switch **between** two" specifically wasn't
-  exercised anywhere — the underlying code path (`setActiveUrl` +
-  `loadInstance`) is identical regardless of how many instances are
-  stored.
+  row-tap/switch (including between two) could not be exercised because
+  reaching the instance manager a second time depends on back-navigation,
+  which is the unresolved item below — the underlying code path
+  (`setActiveUrl` + `loadInstance`) is identical to iOS's regardless of how
+  many instances are stored, but hasn't itself been exercised there.
 - ✅ External links do not silently navigate the primary WebView away from
   the configured instance — **found and fixed a real bug in the process,
   confirmed on both platforms**: see
