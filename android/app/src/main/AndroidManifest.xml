@@ -38,4 +38,13 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- RFC 0083 device bridge (workstream 0003 leg 4): haptics.impact and
+         notifications.native. VIBRATE is a normal permission, granted at
+         install time. POST_NOTIFICATIONS (API 33+) is a runtime permission,
+         requested on first notifications.native call — see
+         BridgeCapabilities.notificationsNative / MainActivity's
+         notificationPermissionLauncher. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

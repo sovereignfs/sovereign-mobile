@@ -2,8 +2,8 @@ import Capacitor
 import UIKit
 import WebKit
 
-/// Two responsibilities, both documented as this repo's own ADRs since
-/// neither has a sovereign-desktop precedent that transfers as-is:
+/// Three responsibilities, all documented as this repo's own ADRs since
+/// none has a sovereign-desktop precedent that transfers as-is:
 ///
 /// 1. Enables WKWebView's edge-swipe back/forward gesture. Combined with
 ///    `onboarding.ts` using `location.assign` (not `.replace`) when loading
@@ -12,6 +12,9 @@ import WebKit
 /// 2. Enforces navigation policy per sovereign RFC 0058: keeps the active
 ///    instance in this WebView, opens everything else in the system
 ///    browser — see docs/adrs/0007-navigation-policy-enforcement.md.
+/// 3. Swaps the WebView's `WKUserContentController` script/handler set at
+///    the local↔remote navigation boundary (RFC 0083, workstream 0003 leg
+///    4) — see "Bridge isolation" below.
 ///
 /// Capacitor 8's `CAPBridgeViewController` does **not** conform to
 /// `WKNavigationDelegate` itself — it installs a separate, concrete
@@ -29,13 +32,134 @@ import WebKit
 /// navigation lifecycle handling (page-load callbacks, auth challenges,
 /// web-content-process termination, etc.) keeps working unchanged for
 /// everything this class doesn't explicitly care about.
+///
+/// ## Bridge isolation
+///
+/// Capacitor installs `window.Capacitor` (and every registered plugin's JS)
+/// as `WKUserScript`s on the WebView's single `WKUserContentController`,
+/// with `forMainFrameOnly: true` and no origin scoping — confirmed against
+/// `@capacitor/ios` 8.4.2's `JSExport.exportCapacitorGlobalJS`/`exportJS`
+/// (`node_modules/@capacitor/ios/Capacitor/Capacitor/JSExport.swift`). That
+/// means Capacitor's bridge runs on *every* main-frame navigation in this
+/// WebView by default, including the loaded remote instance — the opposite
+/// of this repo's hard rule ("remote instance content must never get
+/// uncontrolled native access") and of `sovereign-desktop`'s Tauri
+/// transport, whose capability grants are origin-scoped by the framework
+/// itself. Capacitor gives no config knob for this; achieving it here means
+/// actively removing Capacitor's own scripts and its `"bridge"`
+/// `WKScriptMessageHandler` (`WebViewDelegationHandler.swift`'s
+/// `handlerName`) whenever the WebView is about to show remote content, and
+/// restoring them when navigating back to the bundled local page — done in
+/// `enterRemoteMode()`/`enterLocalMode()` below, called from
+/// `decidePolicyFor` since that fires before the destination's document is
+/// created, which is early enough for `.atDocumentStart` script injection
+/// to apply to the *next* page. `localModeScripts` is captured once, in
+/// `capacitorDidLoad()`, from `userContentController.userScripts` (a public
+/// property) — there is no Capacitor API to re-trigger its own injection.
 class MainViewController: CAPBridgeViewController {
     private weak var originalNavigationDelegate: WebViewDelegationHandler?
+
+    private enum ContentMode {
+        case local
+        case remote
+    }
+    private var contentMode: ContentMode = .local
+    private var localModeScripts: [WKUserScript] = []
+    private let bridgeMessageHandler = BridgeMessageHandler()
 
     override func capacitorDidLoad() {
         webView?.allowsBackForwardNavigationGestures = true
         originalNavigationDelegate = webView?.navigationDelegate as? WebViewDelegationHandler
         webView?.navigationDelegate = self
+        localModeScripts = webView?.configuration.userContentController.userScripts ?? []
+    }
+
+    /// Removes Capacitor's own scripts and `"bridge"` message handler,
+    /// installs only the narrow `window.__SOVEREIGN_BRIDGE__` script and its
+    /// `sovereignBridge` message handler. Idempotent — a no-op once already
+    /// in remote mode, so this can be called on every qualifying navigation
+    /// decision without redundant work.
+    private func enterRemoteMode() {
+        guard contentMode != .remote, let contentController = webView?.configuration.userContentController else {
+            return
+        }
+        contentController.removeAllUserScripts()
+        contentController.removeScriptMessageHandler(forName: "bridge")
+        contentController.addUserScript(
+            WKUserScript(source: Self.bridgeScript(), injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        )
+        contentController.add(bridgeMessageHandler, name: BridgeMessageHandler.handlerName)
+        contentMode = .remote
+    }
+
+    /// Restores Capacitor's original scripts (captured once in
+    /// `capacitorDidLoad()`) and its `"bridge"` message handler, removing
+    /// the narrow bridge script/handler. Idempotent, mirroring
+    /// `enterRemoteMode()`.
+    private func enterLocalMode() {
+        guard contentMode != .local, let contentController = webView?.configuration.userContentController else {
+            return
+        }
+        contentController.removeAllUserScripts()
+        contentController.removeScriptMessageHandler(forName: BridgeMessageHandler.handlerName)
+        for script in localModeScripts {
+            contentController.addUserScript(script)
+        }
+        if let original = originalNavigationDelegate {
+            contentController.add(original, name: "bridge")
+        }
+        contentMode = .local
+    }
+
+    /// JavaScript injected into the remote instance's page load, defining
+    /// `window.__SOVEREIGN_BRIDGE__` per `@sovereignfs/bridge`'s
+    /// `InstalledBridge` wire shape (`packages/bridge/src/protocol.ts` in
+    /// the monorepo). `invoke()` posts to the narrow `sovereignBridge`
+    /// message handler (`Bridge.swift`) and resolves via a pending-promise
+    /// registry — `WKScriptMessageHandler.postMessage` has no return value,
+    /// unlike Tauri's `invoke()`, so the native side calls back into
+    /// `window.__sovereignBridgeResolve__` once the capability call
+    /// completes (immediately for `haptics.impact`, after the
+    /// `UNUserNotificationCenter` round trip for `notifications.native`).
+    private static func bridgeScript() -> String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        return """
+            (function () {
+              var pending = {};
+              var counter = 0;
+              window.__sovereignBridgeResolve__ = function (envelope) {
+                var resolve = pending[envelope.id];
+                if (resolve) {
+                  delete pending[envelope.id];
+                  resolve(envelope.result);
+                }
+              };
+              Object.defineProperty(window, '__SOVEREIGN_BRIDGE__', {
+                value: Object.freeze({
+                  protocolVersion: 1,
+                  shell: Object.freeze({ name: 'sovereign-mobile', version: '\(version)', platform: 'ios' }),
+                  capabilities: [
+                    { name: 'haptics.impact', version: 1 },
+                    { name: 'notifications.native', version: 1 }
+                  ],
+                  invoke: function (capability, payload) {
+                    return new Promise(function (resolve) {
+                      var id = 'b' + counter++ + '_' + Date.now();
+                      pending[id] = resolve;
+                      window.webkit.messageHandlers.\(BridgeMessageHandler.handlerName).postMessage({
+                        id: id,
+                        capability: capability,
+                        payload: payload || {}
+                      });
+                    });
+                  }
+                }),
+                writable: false,
+                configurable: false,
+                enumerable: true
+              });
+            })();
+            """
     }
 
     // MARK: - Message forwarding for everything but decidePolicyFor
@@ -67,7 +191,10 @@ extension MainViewController: WKNavigationDelegate {
               let scheme = url.scheme, scheme == "http" || scheme == "https" else {
             // Non-http(s) requests (capacitor:// bridge traffic, etc.) are
             // Capacitor's own concern — forward to its real handler rather
-            // than deciding ourselves.
+            // than deciding ourselves. This is also how a back-navigation to
+            // the bundled local page is detected, so restore Capacitor's own
+            // bridge here before forwarding.
+            enterLocalMode()
             forwardDecidePolicy(webView, navigationAction, decisionHandler)
             return
         }
@@ -85,7 +212,9 @@ extension MainViewController: WKNavigationDelegate {
             // No active instance recorded yet. In practice this only
             // precedes the very first navigation *to* a freshly-added
             // instance, so allow it directly — do NOT forward to
-            // Capacitor's own handler here (see below).
+            // Capacitor's own handler here (see below). This is still
+            // remote (http/https) content, so isolate the bridge here too.
+            enterRemoteMode()
             decisionHandler(.allow)
             return
         }
@@ -105,6 +234,7 @@ extension MainViewController: WKNavigationDelegate {
             // wrong here — this shell's entire purpose is to load a
             // user-chosen remote origin as primary content, per
             // docs/adrs/0005-server-url-not-bundled-assets.md.
+            enterRemoteMode()
             decisionHandler(.allow)
             return
         }
