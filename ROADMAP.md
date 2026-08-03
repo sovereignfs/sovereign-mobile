@@ -11,10 +11,13 @@ below (`0.1.1`, `0.2.1`, …) are this repo's own and are volatile: they
 reflect current sequencing and shift when priorities change. Keep slots out
 of branch names and commit subjects.
 
-This repo does not exist yet as a shipped product — every row below is
-📋 Planned. See [docs/repositories.md](https://github.com/sovereignfs/sovereign/blob/main/docs/repositories.md)
-in the `sovereign` monorepo, which lists this repo's status as "Not yet
-created" as of 2026-07-31.
+This repo has not had a public release yet — see the Phase 1 definition of
+done below for that bar. Individual tasks land and ship to internal
+builds/testing ahead of that: Phase 2 (bridge transport) is done as of
+2026-08. [docs/repositories.md](https://github.com/sovereignfs/sovereign/blob/main/docs/repositories.md)
+in the `sovereign` monorepo listed this repo's status as "Not yet created" as
+of 2026-07-31 — stale now that real code has landed; update it there when
+touching that doc next.
 
 ## Phase 1 — Whole-instance shell (sovereign workstream 0002)
 
@@ -99,6 +102,7 @@ this repo's first shipped version:
 
 ## Changelog
 
-| Version | Date       | Change          |
-| ------- | ---------- | --------------- |
-| 0.1     | 2026-07-31 | Initial roadmap |
+| Version | Date       | Change                                                                         |
+| ------- | ---------- | ------------------------------------------------------------------------------ |
+| 0.1     | 2026-07-31 | Initial roadmap                                                                |
+| 0.2     | 2026-08-03 | Phase 2 (20.3, bridge adapter) done; 20.8 (haptics) closed as subsumed by 20.3 |
