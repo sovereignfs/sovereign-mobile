@@ -96,11 +96,16 @@ Capacitor plugin calls.
   `window.Capacitor === undefined` on the loaded remote instance, confirmed
   `window.__SOVEREIGN_BRIDGE__.invoke('haptics.impact', ...)` and
   `invoke('notifications.native', ...)` both round-trip to `{status:'ok'}` —
-  including the real OS permission prompt firing and being granted
-  (`UNUserNotificationCenter` on iOS, `POST_NOTIFICATIONS` runtime
-  permission on Android 13+) — and confirmed navigating back to local content
-  restores normal Capacitor function (`@capacitor/preferences`-backed
-  instance list still renders).
+  including the real OS permission prompt firing (accepted, "Allow") —
+  and confirmed navigating back to local content restores normal Capacitor
+  function (`@capacitor/preferences`-backed instance list still renders).
+  **Only the `ok` path was exercised this way.** `denied` (permission
+  refused), `dismissed`, and `unavailable` (unknown capability name) are
+  each a single, low-risk code path — the same `default: unavailable(...)`
+  shape already shipped on `sovereign-desktop`'s Tauri transport — but
+  weren't separately clicked through on either platform; a reviewer who
+  wants that specific coverage before merge should ask for it explicitly
+  rather than assume it's implied by "empirically verified."
 - **No automated native tests were added** — this repo has no existing
   XCTest/Espresso harness to extend, and the capability logic lives entirely
   in native code unreachable from the Vitest/jsdom-based TS test suite.
