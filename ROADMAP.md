@@ -44,7 +44,7 @@ RFC 0083). Nothing in this phase starts before the protocol itself
 
 | Slot  | Task                                                                                            | Status | Epic task                                                                           |
 | ----- | ----------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------- |
-| 0.2.1 | Mobile SDK native environment and bridge adapter (Capacitor transport of `@sovereignfs/bridge`) | 📋     | [20.3](docs/epics/bridge.md#-203--mobile-sdk-native-environment-and-bridge-adapter) |
+| 0.2.1 | Mobile SDK native environment and bridge adapter (Capacitor transport of `@sovereignfs/bridge`) | ✅     | [20.3](docs/epics/bridge.md#-203--mobile-sdk-native-environment-and-bridge-adapter) |
 
 ## Phase 3 — Capability breadth
 
@@ -57,7 +57,7 @@ once Phase 2 ships, as product need identifies them.
 | 0.3.1 | Native push notifications (APNs/FCM)   | 📋     | [20.5](docs/epics/bridge.md#-205--native-push-notifications-apnsfcm)      |
 | 0.3.2 | Native photo picker and camera capture | 📋     | [20.6](docs/epics/bridge.md#-206--native-photo-picker-and-camera-capture) |
 | 0.3.3 | Biometric auth capability              | 📋     | [20.7](docs/epics/bridge.md#-207--biometric-auth-capability)              |
-| 0.3.4 | Haptics capability                     | 📋     | [20.8](docs/epics/bridge.md#-208--haptics-capability)                     |
+| 0.3.4 | Haptics capability                     | ✅     | [20.8](docs/epics/bridge.md#-208--haptics-capability)                     |
 | 0.3.5 | Background capability planning         | 📋     | [20.9](docs/epics/bridge.md#-209--background-capability-planning)         |
 
 Further candidates (geolocation, calendar, NFC, and others) are tracked as

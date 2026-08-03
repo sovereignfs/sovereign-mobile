@@ -7,7 +7,10 @@
 
 ## Status
 
-📋 Planned
+⏳ In Progress — 20.3 done (adapter + haptics.impact + notifications.native,
+per [ADR 0004](../adrs/0004-shared-device-bridge-contract-with-desktop.md)'s
+"v1 ships the thin slice" framing, not split across separate tasks as this
+doc originally implied); 20.5–20.9 still 📋 Planned
 
 ## Overview
 
@@ -31,7 +34,7 @@ too, not just this repo:
 
 ## Tasks
 
-#### 📋 20.3 — Mobile SDK native environment and bridge adapter
+#### ✅ 20.3 — Mobile SDK native environment and bridge adapter
 
 > **Rescoped by sovereign RFC 0083.** The environment-detection half is
 > covered centrally by sovereign task 3.32 (RFC 0080). What remains here is
@@ -62,6 +65,53 @@ Capacitor plugin calls.
 - `window.Capacitor` is not reachable from page JS.
 - Unsupported capabilities return the documented typed result, not a thrown
   exception.
+
+**Outcome (2026-08, both platforms verified empirically, not just compiled):**
+
+- **iOS and Android needed genuinely different designs** because Capacitor's
+  own bridge isolation posture differs by platform — this wasn't assumed
+  going in, it came from reading each platform's actual `@capacitor/ios` /
+  `@capacitor/android` 8.4.2 source before writing any native code:
+  - **iOS**: `window.Capacitor` is a WebView-level `WKUserScript` with no
+    origin scoping (`forMainFrameOnly: true`, no origin filter) — it runs on
+    _every_ navigation, including the loaded remote instance, by default.
+    Genuine isolation required actively fighting the framework:
+    `MainViewController.swift` swaps the `WKUserContentController`'s
+    script/handler set at the local↔remote navigation boundary, replacing
+    Capacitor's own scripts and `"bridge"` `WKScriptMessageHandler` with the
+    narrow `__SOVEREIGN_BRIDGE__` script and a `sovereignBridge` handler
+    (`Bridge.swift`), restoring Capacitor's own on the way back.
+  - **Android**: the opposite problem. `Bridge.java`'s `loadWebView()`
+    already registers both `window.Capacitor` (`WebViewCompat.addDocumentStartJavaScript`)
+    and the native `androidBridge` channel (`WebViewCompat.addWebMessageListener`)
+    scoped to `bridge.getAllowedOriginRules()` — which, since this app never
+    sets `server.url`, contains only the local origin. So `window.Capacitor`
+    never reached the remote instance to begin with; nothing to remove.
+    `NavigationPolicyWebViewClient.java` only needed to _add_ its own
+    `sovereignBridge` registration (`BridgeMessageListener.java`), using the
+    same origin-scoped APIs, scoped to the runtime-chosen active instance
+    origin instead of the static local one.
+- **Empirically verified end-to-end on both platforms** (iOS Simulator,
+  Android Emulator via this repo's bundled `.toolchain/`): confirmed
+  `window.Capacitor === undefined` on the loaded remote instance, confirmed
+  `window.__SOVEREIGN_BRIDGE__.invoke('haptics.impact', ...)` and
+  `invoke('notifications.native', ...)` both round-trip to `{status:'ok'}` —
+  including the real OS permission prompt firing and being granted
+  (`UNUserNotificationCenter` on iOS, `POST_NOTIFICATIONS` runtime
+  permission on Android 13+) — and confirmed navigating back to local content
+  restores normal Capacitor function (`@capacitor/preferences`-backed
+  instance list still renders).
+- **No automated native tests were added** — this repo has no existing
+  XCTest/Espresso harness to extend, and the capability logic lives entirely
+  in native code unreachable from the Vitest/jsdom-based TS test suite.
+  Verification is the empirical simulator/emulator round-trip above, the
+  same precedent `sovereign-desktop`'s Tauri transport (leg 3) set. A real
+  gap against this task's "Tests covering..." deliverable as originally
+  written, flagged rather than silently claimed as satisfied.
+- `getPermission()`/`requestPermission()` (`packages/sdk/src/device-client.ts`
+  in the monorepo) already report `'granted'` unconditionally on any
+  native-bridge transport, per the fix that shipped with leg 3 — no further
+  monorepo change was needed for this leg.
 
 ---
 
@@ -146,7 +196,15 @@ this capability never grants a session by itself.
 
 ---
 
-#### 📋 20.8 — Haptics capability
+#### ✅ 20.8 — Haptics capability
+
+> **Closed by 20.3.** This task predates RFC 0083 and sketched a richer
+> four-style feedback surface (success/warning/error/light). The actual
+> shipped contract is `haptics.impact('light' | 'medium' | 'heavy')`,
+> matching `sovereign-desktop`'s Tauri transport and the monorepo SDK
+> exactly — see [ADR 0004](../adrs/0004-shared-device-bridge-contract-with-desktop.md),
+> which folds haptics into v1's thin slice alongside `notifications.native`
+> rather than a separate later task. Nothing separate remains here.
 
 **Goal:** Expose lightweight native haptics through `sdk.device.*` for
 mobile interaction feedback.
