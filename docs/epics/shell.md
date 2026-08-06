@@ -6,9 +6,10 @@
 
 ## Status
 
-⏳ In Progress — task 20.1 scaffold implemented and partially verified on
-iOS Simulator; not yet ✅ (see task detail below for exactly what is and
-isn't verified).
+⏳ In Progress — task 20.1 scaffold implemented and verified on iOS
+Simulator, Android Emulator, and a real physical iPhone, including a real
+Android-specific back-navigation bug found and fixed (see task detail
+below); not yet ✅ pending physical-device sign-off on Android.
 
 ## Overview
 
@@ -96,19 +97,21 @@ Emulator:**
   both platforms: force-stopped and relaunched the app after connecting;
   it loaded `sovereign.openfs.io`'s real sign-in page directly, no
   onboarding shown.
-- 🟡 Users can add, remove, and switch between at least two instances —
-  **fully verified on iOS**, now including "switch **between** two" itself
-  (2026-08-02, task 20.2 verification pass): added `sovereign.openfs.io`
-  and a local `sovereign` dev server (`http://localhost:3000`) as two real
-  instances side by side, confirmed both listed with their real names
+- ✅ Users can add, remove, and switch between at least two instances —
+  verified on both platforms. iOS confirmed 2026-08-02. Android confirmed
+  2026-08-06: added `sovereign.openfs.io` and a local `sovereign` dev
+  server (`http://10.0.2.2:3000`, the emulator's address for the host's
+  `localhost:3000`) as two real instances side by side on a fresh
+  `sovereign_mobile_test` AVD; both listed correctly; switched into the
+  first (openfs.io, confirmed by no new request landing on the local dev
+  server's logs) and then the second (confirmed by fresh `GET /` and
+  `GET /api/verify` requests appearing in the local dev server's own log
+  at the moment of the tap); removed a stored instance cleanly, returning
+  to onboarding. iOS verification: added `sovereign.openfs.io` and a local
+  `sovereign` dev server (`http://localhost:3000`) as two real instances
+  side by side, confirmed both listed with their real names
   (`sovereign.openfs.io`, `Sovereign`) via `/api/instance`, and removed the
-  second cleanly. **Only partially verified on Android**: add (Connect) and
-  the underlying same-origin navigation are confirmed; remove and
-  row-tap/switch (including between two) could not be exercised because
-  reaching the instance manager a second time depends on back-navigation,
-  which is the unresolved item below — the underlying code path
-  (`setActiveUrl` + `loadInstance`) is identical to iOS's regardless of how
-  many instances are stored, but hasn't itself been exercised there.
+  second cleanly.
 - ✅ External links do not silently navigate the primary WebView away from
   the configured instance — **found and fixed a real bug in the process,
   confirmed on both platforms**: see
@@ -122,28 +125,110 @@ Emulator:**
   through the same flow. The cross-origin (cancel + open externally)
   branch itself is still not click-tested against a real external link on
   either platform.
-- 🟡 The history-based back-navigation instance-switch affordance
+- ✅ The history-based back-navigation instance-switch affordance
   ([ADR 0006](../adrs/0006-history-based-instance-switch-affordance.md))
-  — **confirmed working on iOS**, repeatably. **Inconclusive on Android**:
-  testing via `adb shell input keyevent KEYCODE_BACK` and an edge-swipe
-  gesture produced inconsistent results (one run reached the app and then
-  hung on a native plugin call, coinciding with the emulator's WebView
-  renderer process being killed/respawned in the logs; several other runs
-  never reached the app at all, apparently consumed by the system IME
-  layer first). See ADR 0006's Consequences section for the full detail —
-  this needs a real device or a more interactive test session to resolve,
-  not headless `adb input` injection.
+  — **confirmed working on both platforms, including the cold-relaunch
+  case, as of 2026-08-06.** This entry went through three revisions in one
+  session — recorded here in full because the middle revisions are a
+  useful record of what *didn't* work and why, not just noise:
+  1. First revision (based on user-initiated-navigation testing only)
+     declared this fully resolved on Android. **Wrong** — it never tested
+     the cold-relaunch path.
+  2. Second revision, after specifically testing cold-relaunch (force-stop
+     the app, or let Android kill it in the background, then reopen it —
+     `boot()`'s automatic `location.assign()` on launch): found it
+     reliably **broken**, 8/8 consecutive back-presses failing to reach
+     the instance manager on two independent clean installs. Hypothesized
+     a lingering IME input connection (`adb shell dumpsys input_method`
+     showed the WebView registered as the served view immediately after
+     the redirect, before any tap).
+  3. **This revision, after actually fixing it**: the IME theory turned
+     out to be a correlation, not the cause — clearing WebView focus
+     (including with delayed retries, to rule out a hydration-timing
+     race) did not fix it. Instrumenting `Activity.dispatchKeyEvent`
+     directly revealed the real bug: the WebView's own `canGoBack()`
+     reports `false` and `goBack()` silently no-ops in this state, even
+     though `copyBackForwardList()` correctly shows two history entries
+     with the current index past the first — a genuine WebView/Chromium
+     internal-state bug tied to this shell's early, JS-triggered,
+     cross-origin redirect on cold launch, not an app logic error.
+     **Fixed** by bypassing the broken mechanism entirely:
+     `MainActivity.java`'s `dispatchKeyEvent` now checks the WebView's
+     current URL directly and, on back-press from a loaded remote
+     instance, explicitly `loadUrl()`s the known local manage URL instead
+     of trusting `goBack()`. Verified against the exact prior repro —
+     clean install, connect, force-stop, relaunch, back-press — across
+     three independent clean installs, all succeeding on the first press,
+     with no regression to the already-working switch-via-row-tap and
+     back-from-that-state paths.
+  See [ADR 0006](../adrs/0006-history-based-instance-switch-affordance.md)'s
+  Consequences section for the full raw evidence trail.
 - ✅ No Sovereign auth, role, or plugin behavior is duplicated in native
   code — true by construction; nothing in this scaffold touches auth (no
   credentials were entered into the loaded instance during testing — a
   human tester supplied test credentials mid-session and was told those
   can't be typed in by the agent, per a hard rule against entering
   credentials into any field).
-- ❌ Real **physical device** verification — not done; simulator/emulator
-  only, as expected at this stage. See Risks.
+- 🟡 Real **physical device** verification — **done on iOS (2026-08-06),
+  still not done on Android.** Built, signed (`Apple Development:
+  kasunben@proton.me`, automatic signing via `-allowProvisioningUpdates`
+  once the account was added to Xcode and the resulting developer profile
+  explicitly trusted on-device under Settings → General → VPN & Device
+  Management), installed, and launched on a real, physically connected
+  iPhone 15 Pro ("La Sirena", iOS build 23F84) via `xcrun devicectl`. A
+  human tester drove the device directly (this agent has no way to inject
+  touches into physical hardware, unlike Simulator/Emulator) and confirmed,
+  against the real `sovereign.openfs.io` instance: onboarding shown on
+  first launch; connect and real sign-in succeeded; force-quit and
+  relaunch loaded straight back into the signed-in instance with no
+  onboarding; **a genuine edge-swipe gesture** (not Simulator's synthetic
+  gesture injection) returned from the loaded instance to the instance
+  manager, the strongest evidence yet for
+  [ADR 0006](../adrs/0006-history-based-instance-switch-affordance.md);
+  tapping back into the listed instance reloaded it correctly; and an
+  external link (from the sign-in page) opened in Safari, staying out of
+  the primary app view, confirming
+  [ADR 0007](../adrs/0007-navigation-policy-enforcement.md) on real
+  hardware too. Not exercised on real hardware: add/remove of a second
+  instance (only one real instance was available to this device's
+  network), and the cross-origin cancel-and-warn path specifically. See
+  Risks — the Android half of this item remains a human handoff.
 
 **Implementation notes from this pass, for whoever picks this up next:**
 
+- **When driving Android back-navigation via `adb shell input keyevent
+  KEYCODE_BACK`, make sure no text field has keyboard focus first** — a
+  focused `EditText`/WebView input eats the first back-press to dismiss
+  the IME (`GoogleInputMethodService` logs it), so a single scripted
+  back-press right after typing looks like it did nothing. Relevant to the
+  now-fixed cold-relaunch bug's *first* ("inconclusive", 2026-08-02)
+  diagnosis, but not the actual root cause of the bug fixed on 2026-08-06
+  — see below and ADR 0006 for the full trail.
+- **Don't declare a platform-specific navigation/back-button finding
+  resolved from only one test shape.** A first correction of the
+  2026-08-02 "inconclusive" Android finding tested only user-initiated
+  navigation, generalized to "resolved on both platforms," and was wrong
+  — cold-relaunch-then-back (arguably the most realistic real-world case,
+  since Android kills backgrounded apps routinely) was still broken. When
+  a bug report says "sometimes works, sometimes doesn't," the different
+  outcomes are probably different code paths, not flakiness — enumerate
+  the paths before declaring victory on the first one that works.
+- **Don't trust the first plausible-looking correlation as the root
+  cause, either — verify it fixes the bug before writing it down as the
+  explanation.** `adb shell dumpsys input_method` showing the WebView as
+  the IME's served view immediately after the broken cold-relaunch
+  redirect looked like a strong lead, and was written up as one — but
+  explicitly clearing WebView focus (with delayed retries, to rule out a
+  hydration-timing race) didn't fix the actual bug. The real cause, found
+  by instrumenting `Activity.dispatchKeyEvent` with logging rather than
+  reasoning from `dumpsys` output alone: `WebView.canGoBack()` reports
+  `false` and `goBack()` silently no-ops after this shell's specific
+  cold-launch redirect pattern, even though `copyBackForwardList()`
+  correctly shows a valid previous entry — a genuine WebView/Chromium
+  internal-state bug. The fix that actually worked
+  (`android/app/src/main/java/fs/sovereign/mobile/MainActivity.java`'s
+  `dispatchKeyEvent` override) bypasses `goBack()`/`canGoBack()` entirely
+  rather than trying to prevent the stale state from occurring.
 - The Xcode project uses the classic (non-file-system-synchronized) format:
   new source files must be added to `project.pbxproj` explicitly
   (`PBXBuildFile`, `PBXFileReference`, the `App` group, and the `Sources`
@@ -204,13 +289,51 @@ Emulator:**
   environment. `adb logcat -d | grep -iE "chromium|console|capacitor"` was
   how both the navigation-policy bug and the back-navigation hang were
   actually diagnosed here, not guessed at.
+- **Building and installing to a real, physically connected iPhone from
+  the command line** (as opposed to Simulator, or opening Xcode's GUI)
+  needs a few things lined up that aren't obvious from a simulator-only
+  workflow: (1) an Apple ID must be signed into Xcode's own Accounts
+  settings — a valid codesigning identity in Keychain Access isn't
+  enough on its own, `xcodebuild` reported "No Account for Team" until
+  this was done, and this step needs a human since it requires entering
+  a password/2FA; (2) even with automatic signing (`CODE_SIGN_STYLE =
+  Automatic` in the project, no `DEVELOPMENT_TEAM` hardcoded), the build
+  command still needs `-allowProvisioningUpdates` or it fails with "No
+  profiles for '\<bundle id\>' were found" instead of generating one; (3)
+  after install, the very first launch attempt via
+  `xcrun devicectl device process launch` fails with "invalid code
+  signature, inadequate entitlements or its profile has not been
+  explicitly trusted" — this isn't a build problem, it's iOS requiring
+  the human to go to Settings → General → VPN & Device Management on the
+  phone itself and explicitly trust the developer profile before
+  anything signed with it will run. None of this is scriptable around;
+  each of the three needs a human in the loop once. The working command
+  sequence: `xcodebuild -project ios/App/App.xcodeproj -scheme App
+  -destination 'id=<device-udid>' -allowProvisioningUpdates build`, then
+  `xcrun devicectl device install app --device <device-udid> <path-to-.app>`,
+  then (after the on-device trust step) `xcrun devicectl device process
+  launch --device <device-udid> fs.sovereign.mobile`.
+- **This agent has no way to inject touches or read the screen of a
+  physical device**, unlike Simulator (`simctl`) or Emulator (`adb input`
+  / `adb exec-out screencap`). Real-device UI verification is therefore a
+  live back-and-forth: the agent drives build/install/launch, a human
+  performs each tap/gesture on the actual hardware and reports what they
+  saw, one step at a time.
 
 ## Risks
 
 - **Real-device verification is a documented human handoff.** An agent can
-  build, wire CI, and prepare a checklist, but final sign-off requires a
-  physical iPhone and Android device — see sovereign workstream 0002's Risks
-  section and `docs/pwa-real-device-testing.md` in the `sovereign` monorepo.
+  build, wire CI, and prepare a checklist, but driving the actual taps and
+  gestures requires a human with the physical device in hand — see
+  sovereign workstream 0002's Risks section and
+  `docs/pwa-real-device-testing.md` in the `sovereign` monorepo. **Partly
+  discharged for iOS (2026-08-06):** with a real iPhone connected over USB
+  and a human tester relaying what they saw, this agent handled the build/
+  sign/install/launch side (`xcodebuild -allowProvisioningUpdates` +
+  `xcrun devicectl`) while the human performed every tap and gesture — see
+  the physical-device checklist entry above. **Android physical-device
+  verification is still fully open** — no real Android device was
+  available this session.
 - **Apple guideline 4.2 (minimum functionality)** applies to WebView
   wrappers. Well precedented by Nextcloud/Bitwarden/Element, and the
   self-hosted-client category is the one Apple accommodates — but non-zero

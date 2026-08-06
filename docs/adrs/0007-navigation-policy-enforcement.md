@@ -114,8 +114,15 @@ platforms — see Verified below for exactly how this was caught.
   staying in-app (`topResumedActivity` / `dumpsys` confirmed
   `fs.sovereign.mobile/.MainActivity` stayed foreground, not a browser)
   were all reproduced on-device, matching iOS.
-- **Still not verified:** an actual cross-origin link click-through on
-  either platform (every test so far exercised the same-origin path,
-  which is the one that was broken; the cancel-and-open-externally branch
-  for a genuinely different origin has not been exercised against a real
-  link in a loaded instance).
+- **Cross-origin click-through verified on a real physical iPhone
+  (2026-08-06).** Built, signed, installed, and launched on a connected
+  iPhone 15 Pro via `xcodebuild -allowProvisioningUpdates` + `xcrun
+  devicectl`; a human tester tapped an actual external link (from
+  `sovereign.openfs.io`'s real sign-in page) and confirmed it opened in
+  Safari, staying out of the primary app view — closing the "still not
+  verified" gap noted above, at least for iOS. The same tester also
+  reconfirmed the same-origin path end-to-end on real hardware: onboarding,
+  connect, sign-in, force-quit/relaunch persistence, and switching back
+  into the listed instance all stayed in-app as expected. **Still not
+  verified:** the equivalent cross-origin click-through on a real Android
+  device (no physical Android device was available this session).

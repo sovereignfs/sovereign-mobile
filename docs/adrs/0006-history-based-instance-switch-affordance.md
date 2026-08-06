@@ -111,10 +111,20 @@ plugin doesn't already cover" rule.
   instance manager (list, remove, add-another-instance form) rather than a
   dead splash screen, repeatably across multiple connect/back/reconnect
   cycles.
+- **Verified working on a real physical iPhone (2026-08-06).** Built,
+  signed, installed, and launched on a connected iPhone 15 Pro via
+  `xcodebuild -allowProvisioningUpdates` + `xcrun devicectl`; a human
+  tester performed the actual gesture (this agent cannot inject touches
+  into physical hardware). A genuine edge-swipe — not Simulator's
+  synthetic gesture injection — returned from the loaded
+  `sovereign.openfs.io` instance to the instance manager on the first
+  try. This is the strongest confirmation of this affordance yet, since
+  it's the exact real-world input the mechanism was designed for. See
+  [docs/epics/shell.md](../epics/shell.md) for the full session detail.
 - **Inconclusive on Android Emulator (2026-08-02) — not confirmed working,
-  not confirmed broken.** Tested against the same real instance on a fresh
-  arm64-v8a API 34 AVD. Results were inconsistent enough that none of them
-  should be trusted as the answer on their own:
+  not confirmed broken** at the time. Tested against the same real
+  instance on a fresh arm64-v8a API 34 AVD. Results were inconsistent
+  enough that none of them were trusted as the answer on their own:
   - One attempt clearly reached the app (logcat showed `boot()` re-running
     and calling `Preferences.get('sovereign.activeUrl')`) and then hung
     indefinitely — the plugin call never returned, leaving the splash
@@ -128,17 +138,81 @@ plugin doesn't already cover" rule.
     `adb shell input swipe`) never reached the app at all —
     `GoogleInputMethodService` logged consuming the back-key event first
     every time, and no `Capacitor`-tagged log line appeared afterward.
-    Whether that's a genuine platform/IME behavior or an artifact of
-    synthetic `adb input` injection (as opposed to a real touchscreen
-    edge-swipe) is unresolved.
   - A same-session retest with a demonstrably healthy, freshly-restarted
     app process still produced no observable navigation on either input
     method.
-  - **Net effect:** unlike the navigation-policy bug (ADR 0007), which was
-    cleanly reproduced, root-caused, fixed, and re-verified on both
-    platforms, this affordance's Android behavior was not pinned down.
-    Treat "does the Android back button reach the instance manager" as an
-    **open question**, not a confirmed pass or a confirmed regression —
-    real-device testing (not this environment's headless `adb input`
-    injection) is the credible way to resolve it, consistent with the
-    Risks section of [docs/epics/shell.md](../epics/shell.md).
+- **Partially resolved, partially reconfirmed broken on Android Emulator
+  (2026-08-06, two separate passes).** The first pass that day retested
+  only the case where the WebView navigates to the remote instance via a
+  user-initiated tap (typing a URL and tapping Connect) within an
+  already-running process: with no text field focused before the
+  back-press, 5 consecutive `KEYCODE_BACK` presses each reached the
+  instance manager on the first try — after a fresh connect, after a
+  row-tap switch back into an instance, and after removing an instance.
+  Switching between two real instances (`sovereign.openfs.io` and a local
+  `sovereign` dev server at `http://10.0.2.2:3000`, the emulator's address
+  for the host's `localhost:3000`) was also confirmed via each server's
+  own request log. This part **is** genuinely fixed: the prior
+  2026-08-02 inconclusiveness on this specific path traced to back-presses
+  being sent while the URL text field still held keyboard focus, not an
+  app bug.
+  - **A second, more thorough pass the same day found a real, distinct
+    bug** (since fixed — see below): the affordance reliably **failed**
+    when the WebView reached the remote instance via `boot()`'s automatic
+    `location.assign()` on a cold app launch (i.e. after Android
+    force-stops the app — or the OS kills it in the background — and the
+    user reopens it) rather than via a user tap. Reproduced on a fully
+    clean `pm clear` install: connect once, force-stop, relaunch (lands
+    correctly on the saved instance's sign-in page), then back-press —
+    **failed 8 consecutive times**, confirmed stuck on the same screen
+    each time via screenshot. **This is the opposite of an even earlier
+    "resolved" claim in this section's prior revision — that revision
+    tested only the working (user-tap) path and over-generalized from it;
+    the specific case the original 2026-08-02 finding most plausibly
+    represents (a real user reopening the app) was not actually retested
+    until this second pass, and was still broken.**
+  - **Root cause, found by instrumenting native code and testing each
+    hypothesis empirically rather than guessing:** the first theory —
+    `adb shell dumpsys input_method` showed the WebView registered as the
+    IME's `mServedView` immediately after the cold-launch redirect, with
+    no field ever tapped — pointed at a lingering IME input connection.
+    That turned out to be a **correlation, not the cause**: explicitly
+    clearing WebView focus in `onPageFinished` (including repeated
+    delayed retries, to rule out a hydration-timing race) did not fix it.
+    Intercepting the back key earlier, in `Activity.dispatchKeyEvent`,
+    revealed the real problem once instrumented with logging: **the
+    WebView's own `canGoBack()` reports `false` and `goBack()` silently
+    no-ops in this state — even though `copyBackForwardList()` correctly
+    shows two entries** (the local page and the remote instance) **with
+    the current index past the first.** This is a genuine WebView/
+    Chromium internal-state bug specific to this navigation pattern (an
+    early, JS-triggered, cross-origin `location.assign()` during a cold
+    app launch), not anything wrong with this shell's own history
+    handling — `assign` vs `replace` was never the issue. Delaying the
+    redirect until after the local page's own `load` event (in case this
+    was a timing race with the page not yet "committed") was tried and
+    ruled out — `canGoBack()` stayed stuck at `false` regardless of how
+    long the wait.
+  - **Fix (2026-08-06, same day): bypass the broken history mechanism
+    entirely.** `MainActivity.java`'s `dispatchKeyEvent` now checks the
+    WebView's *current URL* (not its back-forward-list state) to detect
+    "a remote instance is loaded," and on back-press, explicitly
+    `loadUrl()`s the known local manage URL (`https://localhost/?manage=1`)
+    directly, rather than calling `goBack()` and trusting it to work. This
+    sidesteps the WebView bug entirely instead of working around its
+    specific trigger conditions. **Verified against the exact prior
+    repro — clean install, connect, force-stop, relaunch, back-press —
+    across three independent clean installs, all succeeding on the first
+    press.** Also verified this doesn't regress the already-working
+    paths: switching into a listed instance via row-tap, and back-press
+    from that state, both still work.
+  - **Notably, iOS never had this problem**: the real-physical-iPhone pass
+    on 2026-08-06 (see below) explicitly exercised connect → force-quit →
+    relaunch → swipe-back, and the swipe worked on the first try — this
+    was specific to Android's WebView, not a shared `main.ts` logic bug.
+  - **Net effect:** this affordance is confirmed working on both
+    platforms, including the cold-relaunch case, as of 2026-08-06. See
+    [docs/epics/shell.md](../epics/shell.md) for the up-to-date checklist
+    entry and the full session's raw evidence trail (including the two
+    dead-end hypotheses, kept for anyone who hits a similar-looking
+    symptom later).
