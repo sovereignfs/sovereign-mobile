@@ -27,17 +27,30 @@ for the universal, whole-instance shell.
 **Deliverables:**
 
 - iOS bundle identifier, Android application ID, icons, splash screens, app
-  display metadata.
+  display metadata. ✅ Icons and splash generated 2026-08-07 from the
+  `sovereign` monorepo's brand mark — see `resources/`,
+  `scripts/generate-app-assets.mjs`; bundle ID (`fs.sovereign.mobile`) and
+  app display name were already set from the initial scaffold.
 - App Store Connect and Play Console listing copy explaining the
-  user-provided instance URL model.
-- App privacy labels / data safety declarations.
-- Signing, provisioning, and CI release documentation.
+  user-provided instance URL model. ✅ Drafted 2026-08-07 — see
+  [docs/store-listing.md](../store-listing.md) §1.
+- App privacy labels / data safety declarations. ✅ Drafted 2026-08-07 — see
+  [docs/store-listing.md](../store-listing.md) §2.
+- Signing, provisioning, and CI release documentation. **Partly open** — see
+  [docs/store-listing.md](../store-listing.md)'s "Still blocked" section;
+  needs an Apple Developer Program account and Google Play Console account
+  (human handoff) before production signing/CI can be finished.
 - Minimum supported iOS and Android versions selected and documented
-  (sovereign RFC 0058 open question — resolve here).
+  (sovereign RFC 0058 open question — resolve here). 🟡 Recommendation
+  drafted 2026-08-07 — see [docs/store-listing.md](../store-listing.md) §3
+  (keep the existing iOS 15.0 / Android API 24 floors); needs your
+  confirmation, not yet treated as decided.
 - Store-review checklist covering network access, permissions, and
-  self-hosted instance behavior.
+  self-hosted instance behavior. ✅ Drafted 2026-08-07 — see
+  [docs/store-listing.md](../store-listing.md) §4.
 - Internal test track (TestFlight / Play internal testing) verified before
   any public release — see [ADR 0002](../adrs/0002-universal-one-binary-distribution.md).
+  Blocked on the same account/signing prerequisites above.
 
 **Dependencies:** Task 20.1.
 
