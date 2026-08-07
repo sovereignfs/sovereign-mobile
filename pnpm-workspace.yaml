@@ -6,3 +6,4 @@
 # sovereign-desktop's pnpm-workspace.yaml.
 allowBuilds:
   esbuild: true
+  sharp: true
