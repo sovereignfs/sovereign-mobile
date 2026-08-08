@@ -1,8 +1,12 @@
 package fs.sovereign.mobile;
 
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.ViewGroup;
 import android.webkit.WebView;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.splashscreen.SplashScreen;
@@ -58,12 +62,88 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
+        addLaunchOverlay();
     }
 
     @Override
     protected void load() {
         super.load();
         bridge.setWebViewClient(new NavigationPolicyWebViewClient(bridge, this));
+    }
+
+    private FrameLayout launchOverlay;
+
+    private static final int LAUNCH_OVERLAY_ICON_DP = 96;
+
+    /**
+     * A second, self-managed splash surface drawn directly on top of the
+     * WebView from launch, held visible until
+     * {@link NavigationPolicyWebViewClient} decides it's safe to reveal —
+     * see that class's onPageFinished doc comment for exactly when. Without
+     * this, the OS-level cold-start splash (the styles.xml/installSplashScreen
+     * fix above) hides itself the moment the WebView starts rendering
+     * *anything*, including the local page's brief pre-boot placeholder —
+     * fine on its own, but on a cold launch with a stored instance, that
+     * placeholder then gets torn down for a real cross-origin navigation to
+     * the remote instance, and that navigation's own blank-page flash was
+     * visibly reported on a real device once the earlier splash-continuity
+     * fix (index.html's matching placeholder) made everything *before* it
+     * seamless enough to notice.
+     *
+     * Deliberately does NOT reuse {@code @drawable/splash} (the full-screen
+     * bitmap `@capacitor/assets` generates): {@code ImageView.setImageResource}
+     * decodes that bitmap synchronously on the main thread in
+     * {@code onCreate()}, and on a real device that showed up as a ~4s
+     * blank-white-screen stall with dropped frames (confirmed via
+     * ActivityTaskManager's "Displayed" timing and Choreographer's skipped-
+     * frame warning) — the exact janky launch this overlay exists to avoid.
+     * Instead this layers a flat {@code @color/splash_background} (same
+     * day/night-resolved color styles.xml's windowSplashScreenBackground
+     * already uses, so it's visually continuous with the OS splash) behind
+     * a small, fixed-size {@code @mipmap/ic_launcher_foreground} — the
+     * adaptive-icon foreground layer, already a small per-density PNG
+     * (a few KB, not a full-screen image), so decoding it is cheap.
+     */
+    private void addLaunchOverlay() {
+        launchOverlay = new FrameLayout(this);
+        launchOverlay.setBackgroundColor(getResources().getColor(R.color.splash_background, getTheme()));
+        launchOverlay.setLayoutParams(
+            new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        );
+
+        ImageView icon = new ImageView(this);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        icon.setImageResource(R.mipmap.ic_launcher_foreground);
+        int iconSizePx = Math.round(LAUNCH_OVERLAY_ICON_DP * getResources().getDisplayMetrics().density);
+        FrameLayout.LayoutParams iconParams = new FrameLayout.LayoutParams(iconSizePx, iconSizePx);
+        iconParams.gravity = Gravity.CENTER;
+        icon.setLayoutParams(iconParams);
+        launchOverlay.addView(icon);
+
+        ((ViewGroup) findViewById(android.R.id.content)).addView(launchOverlay);
+    }
+
+    /**
+     * Idempotent — safe to call more than once (only the first call has any
+     * effect) and safe to call before {@link #addLaunchOverlay()} has run.
+     */
+    void hideLaunchOverlay() {
+        FrameLayout overlay = launchOverlay;
+        if (overlay == null) {
+            return;
+        }
+        launchOverlay = null;
+        overlay
+            .animate()
+            .alpha(0f)
+            .setDuration(150)
+            .withEndAction(() -> {
+                ViewGroup parent = (ViewGroup) overlay.getParent();
+                if (parent != null) {
+                    parent.removeView(overlay);
+                }
+            })
+            .start();
     }
 
     /**

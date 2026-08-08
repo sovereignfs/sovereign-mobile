@@ -75,6 +75,13 @@ export async function renderOnboarding(root: HTMLElement): Promise<void> {
     </div>
   `;
   root.removeAttribute('aria-busy');
+  // Release the splash-matched background (see styles.css's body.pre-boot)
+  // now that this page has its own, intentionally different, softer
+  // background — only relevant here since boot()'s other exit path
+  // (location.assign() to a stored instance) never reaches this function at
+  // all, and wants pre-boot to stay applied for the page's remaining
+  // lifetime anyway.
+  document.body.classList.remove('pre-boot');
 
   const list = root.querySelector<HTMLUListElement>('.instance-list');
   const form = root.querySelector<HTMLFormElement>('.add-form');

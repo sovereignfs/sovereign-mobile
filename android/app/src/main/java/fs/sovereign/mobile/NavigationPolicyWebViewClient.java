@@ -6,6 +6,8 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import androidx.webkit.ScriptHandler;
@@ -69,6 +71,18 @@ public class NavigationPolicyWebViewClient extends BridgeWebViewClient {
     private final Bridge appBridge;
     private ScriptHandler bridgeScriptHandle;
     private String remoteModeOrigin;
+
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingHideLaunchOverlay;
+    // Generous on purpose: while this is pending, MainActivity's launch
+    // overlay (or, once that's gone, index.html's pre-boot placeholder —
+    // see styles.css) is showing, and the two are pixel-identical, so this
+    // delay is never perceptible as lag. What it buys: enough time for
+    // boot()'s single async Preferences round-trip to resolve and, if it
+    // decides to redirect, for enterRemoteMode() below to cancel this
+    // before it fires — see onPageFinished's doc comment for the full
+    // reasoning this is guarding against.
+    private static final long LOCAL_PAGE_SETTLE_DELAY_MS = 400;
 
     public NavigationPolicyWebViewClient(Bridge bridge, MainActivity activity) {
         super(bridge);
@@ -139,6 +153,57 @@ public class NavigationPolicyWebViewClient extends BridgeWebViewClient {
         return true;
     }
 
+    /**
+     * Decides when it's safe to reveal the WebView by hiding
+     * {@link MainActivity}'s launch overlay — see that method's doc comment
+     * for what the overlay is covering for. Two cases, both driven from
+     * here since this is the one place that reliably sees every page-load
+     * completion regardless of origin:
+     *
+     * <ul>
+     * <li>{@code remoteModeOrigin != null} — a real instance just finished
+     * loading (either the direct "user tapped Connect" path or the
+     * cold-launch auto-redirect path). Reveal immediately; there is nothing
+     * left to wait for.
+     * <li>Otherwise — the local page just finished loading, and this
+     * doesn't yet know whether {@code boot()} is about to redirect to a
+     * stored instance or settle into rendering onboarding. Schedule a
+     * reveal after a short delay rather than either extreme: revealing
+     * immediately would flash the destination's blank-page load if a
+     * redirect is about to start (the original bug report this whole
+     * mechanism exists to fix); never revealing without some fallback would
+     * leave the overlay stuck forever if boot() decides not to redirect,
+     * since nothing else would tell us to hide it. If a redirect *does*
+     * start before the delay elapses, {@link #enterRemoteMode} cancels this
+     * pending reveal, and this method fires again — with
+     * {@code remoteModeOrigin != null} this time — once the real
+     * destination finishes loading.
+     * </ul>
+     */
+    @Override
+    public void onPageFinished(WebView view, String url) {
+        super.onPageFinished(view, url);
+        if (remoteModeOrigin != null) {
+            cancelPendingHideLaunchOverlay();
+            activity.hideLaunchOverlay();
+        } else {
+            schedulePendingHideLaunchOverlay();
+        }
+    }
+
+    private void schedulePendingHideLaunchOverlay() {
+        cancelPendingHideLaunchOverlay();
+        pendingHideLaunchOverlay = activity::hideLaunchOverlay;
+        mainHandler.postDelayed(pendingHideLaunchOverlay, LOCAL_PAGE_SETTLE_DELAY_MS);
+    }
+
+    private void cancelPendingHideLaunchOverlay() {
+        if (pendingHideLaunchOverlay != null) {
+            mainHandler.removeCallbacks(pendingHideLaunchOverlay);
+            pendingHideLaunchOverlay = null;
+        }
+    }
+
     private static String activeInstanceOrigin(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFERENCES_GROUP, Context.MODE_PRIVATE);
         return prefs.getString(ACTIVE_URL_KEY, null);
@@ -156,6 +221,10 @@ public class NavigationPolicyWebViewClient extends BridgeWebViewClient {
      * origin-rule set can't be updated on an existing registration.
      */
     private void enterRemoteMode(WebView view, String origin) {
+        // A redirect to a real instance is now confirmed happening — stop
+        // waiting to reveal on the local page's own timeout (see
+        // onPageFinished) and wait for *this* navigation to finish instead.
+        cancelPendingHideLaunchOverlay();
         if (origin.equals(remoteModeOrigin)) {
             return;
         }

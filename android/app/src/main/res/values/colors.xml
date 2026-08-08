@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Splash surface colour — same value as styles.xml's
+      AppTheme.NoActionBarLaunch windowSplashScreenBackground and
+      resources/splash.png's light surface. Its own resource (not just the
+      literal hex in styles.xml) so MainActivity's launch-overlay View can
+      read the same colour without duplicating the hex a second time in
+      Java, and so day/night resolve automatically via this file's
+      values-night override instead of manual Java-side detection.
+    -->
+    <color name="splash_background">#FFFFFFFF</color>
+</resources>

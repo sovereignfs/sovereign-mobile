@@ -75,14 +75,39 @@ function glyphOnlySvg(glyphFill) {
 </svg>`;
 }
 
+/**
+ * Glyph size within the icon, as a fraction of the *height* of a square
+ * bounding box under `fit: 'contain'` (the glyph is taller than wide, so
+ * height is the limiting dimension). 559/1024 — measured directly from
+ * sovereign's actual shipped PWA icons (apple-touch-icon.png, icon-512.png),
+ * not from favicon.svg's own raw viewBox proportions: rendering the full
+ * combined mark SVG (rect + path) edge-to-edge, as this function did before,
+ * matches the *favicon* convention (small favicons want to use all
+ * available space) but not the app-icon convention those PWA icons actually
+ * use, which insets the glyph noticeably more (~54% of canvas height, not
+ * ~70%). Confirmed by direct pixel measurement of both; don't reset this to
+ * "the obvious" edge-to-edge SVG render without re-measuring a real
+ * reference icon first — that was tried and was visibly wrong (a real
+ * device home screen showed this app's icon glyph clearly larger than the
+ * PWA install icon's).
+ */
+const ICON_GLYPH_HEIGHT_PX = 805;
+
 async function writeIcon(outPath) {
-  // Flat app-store icon: full mark, no transparency (flattening onto its own
-  // square fill both satisfies "no alpha channel" and — since the flatten
-  // colour matches the rect fill exactly — discards the rect's rounded
-  // corners too, which is correct: App Store/Play submissions want a
-  // full-bleed square, not pre-rounded corners; each OS applies its own mask.
-  await sharp(Buffer.from(fullMarkSvg(MARK_SQUARE, MARK_LETTER)), { density: 384 })
-    .resize(1024, 1024, { fit: 'contain' })
+  // Full-bleed square background (no transparency — App Store/Play want a
+  // flat square, not pre-rounded corners; each OS applies its own mask) with
+  // the glyph composited on top at the calibrated size above, mirroring the
+  // Android adaptive-icon approach below rather than rendering the combined
+  // rect+path SVG in one shot (which locks the glyph to the favicon's own,
+  // larger, edge-to-edge proportions).
+  const glyph = await sharp(Buffer.from(glyphOnlySvg(MARK_LETTER)), { density: 384 })
+    .resize(ICON_GLYPH_HEIGHT_PX, ICON_GLYPH_HEIGHT_PX, { fit: 'contain' })
+    .png()
+    .toBuffer();
+  await sharp({
+    create: { width: 1024, height: 1024, channels: 4, background: MARK_SQUARE },
+  })
+    .composite([{ input: glyph, gravity: 'center' }])
     .flatten({ background: MARK_SQUARE })
     .png()
     .toFile(outPath);

@@ -58,12 +58,46 @@ body {
   width: min(420px, 100%);
 }
 
+/*
+ * body.pre-boot: the exact splash surface colours (#ffffff / #09090b —
+ * matching resources/splash.png, NOT --sm-color-bg's softer off-white/grey
+ * used everywhere else) for as long as this placeholder mark is on screen,
+ * so the hand-off from the native launch screen doesn't visibly change
+ * shade. main.ts/onboarding.ts remove this class the moment real content
+ * renders (renderOnboarding) or navigation away starts (boot()'s
+ * location.assign()), whichever happens first.
+ */
+body.pre-boot {
+  background: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  body.pre-boot {
+    background: #09090b;
+  }
+}
+
 .splash {
-  text-align: center;
-  font-size: 15px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--sm-color-text-secondary);
+  /* SVGs are inline by default, so without this they left-align inside
+   * #app instead of centering — the old text placeholder centered via
+   * text-align on the same rule, which got dropped along with the text. */
+  display: block;
+  width: 22vmin;
+  height: 22vmin;
+  margin: 0 auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Inverted fills in dark mode — light square, dark letter — so the mark
+   * reads against the dark surface instead of dissolving into it, matching
+   * sovereign/scripts/generate-splash.ts's themedSvg() rationale. */
+  .splash rect {
+    fill: #ffffff;
+  }
+
+  .splash path {
+    fill: #0a0a0a;
+  }
 }
 
 .onboarding h1 {

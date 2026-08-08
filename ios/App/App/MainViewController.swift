@@ -72,6 +72,71 @@ class MainViewController: CAPBridgeViewController {
         originalNavigationDelegate = webView?.navigationDelegate as? WebViewDelegationHandler
         webView?.navigationDelegate = self
         localModeScripts = webView?.configuration.userContentController.userScripts ?? []
+        addLaunchOverlay()
+    }
+
+    // MARK: - Launch overlay
+
+    private var launchOverlay: UIImageView?
+    private var pendingHideLaunchOverlayWorkItem: DispatchWorkItem?
+    // See NavigationPolicyWebViewClient.java's LOCAL_PAGE_SETTLE_DELAY_MS —
+    // same value, same reasoning, kept in sync by hand across the two
+    // platforms since there's nowhere shared to put a single constant.
+    private static let localPageSettleDelay: TimeInterval = 0.4
+
+    /// Same purpose and the same real bug as
+    /// NavigationPolicyWebViewClient.java's onPageFinished doc comment
+    /// describes in full — a second, self-managed splash image on top of
+    /// the WebView from launch, so a cold launch with a stored instance
+    /// doesn't flash the remote page's own blank-load state once it's
+    /// navigated to. Reuses the same "Splash" image asset the launch
+    /// storyboard already shows (`@2x`/`@3x`, light/dark variants,
+    /// LaunchScreen.storyboard's own `scaleAspectFill`), so this is
+    /// pixel-identical to what's already on screen the moment this
+    /// view controller's view appears — no new asset, no visible seam.
+    private func addLaunchOverlay() {
+        let overlay = UIImageView(image: UIImage(named: "Splash"))
+        overlay.contentMode = .scaleAspectFill
+        overlay.clipsToBounds = true
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        // `view` (this view controller's own root view), not
+        // `webView?.superview` — guarantees top-most placement covering
+        // everything regardless of how Capacitor nests the WebView within
+        // its own view hierarchy, since this is added as the last subview
+        // of the outermost view.
+        view.addSubview(overlay)
+        let container = view!
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: container.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+        ])
+        launchOverlay = overlay
+    }
+
+    /// Idempotent — safe to call more than once or before
+    /// `addLaunchOverlay()` has run.
+    private func hideLaunchOverlay() {
+        guard let overlay = launchOverlay else { return }
+        launchOverlay = nil
+        UIView.animate(
+            withDuration: 0.15,
+            animations: { overlay.alpha = 0 },
+            completion: { _ in overlay.removeFromSuperview() }
+        )
+    }
+
+    private func schedulePendingHideLaunchOverlay() {
+        cancelPendingHideLaunchOverlay()
+        let workItem = DispatchWorkItem { [weak self] in self?.hideLaunchOverlay() }
+        pendingHideLaunchOverlayWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.localPageSettleDelay, execute: workItem)
+    }
+
+    private func cancelPendingHideLaunchOverlay() {
+        pendingHideLaunchOverlayWorkItem?.cancel()
+        pendingHideLaunchOverlayWorkItem = nil
     }
 
     /// Removes Capacitor's own scripts and `"bridge"` message handler,
@@ -80,6 +145,11 @@ class MainViewController: CAPBridgeViewController {
     /// in remote mode, so this can be called on every qualifying navigation
     /// decision without redundant work.
     private func enterRemoteMode() {
+        // A redirect to a real instance is now confirmed happening — stop
+        // waiting to reveal on the local page's own timeout (see
+        // webView(_:didFinish:)) and wait for *this* navigation to finish
+        // instead.
+        cancelPendingHideLaunchOverlay()
         guard contentMode != .remote, let contentController = webView?.configuration.userContentController else {
             return
         }
@@ -253,6 +323,32 @@ extension MainViewController: WKNavigationDelegate {
             return
         }
         original.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+    }
+
+    /// Implementing this selector ourselves means `forwardingTarget(for:)`
+    /// no longer proxies it to `originalNavigationDelegate` automatically —
+    /// unlike `decidePolicyFor`, forwarding here isn't conditional on
+    /// local/remote mode, since Capacitor's own bridge-lifecycle bookkeeping
+    /// in its `didFinish` (confirmed it implements this selector by reading
+    /// the resolved Capacitor.swiftinterface, not assumed) needs to keep
+    /// running regardless of what page just finished loading.
+    ///
+    /// The overlay logic mirrors
+    /// NavigationPolicyWebViewClient.java's onPageFinished — see that
+    /// method's doc comment for the full reasoning, identical here:
+    /// `contentMode == .remote` means a real instance just finished
+    /// loading, so reveal immediately; otherwise this was the local page,
+    /// and whether to reveal or wait depends on a `boot()` decision this
+    /// delegate can't see directly, so a short cancellable delay stands in
+    /// for that signal.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        originalNavigationDelegate?.webView(webView, didFinish: navigation)
+        if contentMode == .remote {
+            cancelPendingHideLaunchOverlay()
+            hideLaunchOverlay()
+        } else {
+            schedulePendingHideLaunchOverlay()
+        }
     }
 
     /// Reads the active instance origin directly from the same
