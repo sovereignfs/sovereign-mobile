@@ -29,9 +29,28 @@ const MARK_LETTER = '#ffffff';
  * PWA manifest's theme_color/background_color for dark). */
 const SURFACE_LIGHT = '#ffffff';
 const SURFACE_DARK = '#09090b';
-/** Mark occupies this fraction of the splash canvas's edge, matching
- * sovereign/scripts/generate-splash.ts's MARK_RATIO. */
-const SPLASH_MARK_RATIO = 0.22;
+/**
+ * Mark occupies this fraction of the *square master's* edge — NOT the same
+ * as sovereign/scripts/generate-splash.ts's MARK_RATIO (0.22), even though
+ * both aim for the mark to end up at ~22% of the shorter screen edge on a
+ * real device. That script renders a separate canvas per physical device
+ * size directly, so its ratio is exactly the final on-device ratio. This
+ * script instead renders one 2732×2732 square master, per
+ * `@capacitor/assets`' convention, which iOS's launch storyboard (and
+ * Android's splash background) then scale/crop live to fill each actual
+ * (non-square, much taller-than-wide) screen — inflating the mark's
+ * apparent size in the process. Measured empirically on a real iPhone
+ * screenshot: an input ratio of 0.22 produced a mark occupying ~46% of the
+ * screen's shorter edge, not 22% — almost exactly double. 0.10 was
+ * back-calculated from that measurement (0.22 × 22/46 ≈ 0.105, rounded) to
+ * land close to the intended ~22% after the same scale/crop. If the mark
+ * ever looks visibly off-size again, remeasure a real screenshot rather
+ * than adjusting this by eye — the crop math alone undershot this once
+ * already (predicted ~47.6% for a ~19.5:9 phone, matching the ~46%
+ * measured, so the model is right; only guessing the ratio from it without
+ * measuring is what's risky).
+ */
+const SPLASH_MARK_RATIO = 0.1;
 
 /**
  * The "S" glyph path only, in its native 64x64 viewBox coordinate space —

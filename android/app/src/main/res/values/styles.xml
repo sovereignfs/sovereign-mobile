@@ -16,7 +16,26 @@
     </style>
 
 
+    <!--
+      Parent is androidx.core.splashscreen's real Theme.SplashScreen (that
+      library is a real dependency — see app/build.gradle's
+      androidx.core:core-splashscreen — not a same-named Cordova/Capacitor
+      shim). android:background alone did nothing useful here: without
+      SplashScreen.installSplashScreen(this) being called in
+      MainActivity.onCreate() (it wasn't — added now), none of this
+      library's attributes activate at all, on any API level, and the
+      window just fell back to Theme.SplashScreen's own bare default — a
+      plain grey window with no branding, confirmed by 30 rapid screenshots
+      across a real ~1s cold-launch window showing zero frames with the
+      mark. windowSplashScreenBackground (not android:background) is the
+      real attribute this library reads; omitting
+      windowSplashScreenAnimatedIcon deliberately lets it default to this
+      app's own already-verified adaptive launcher icon rather than
+      maintaining a second custom drawable. postSplashScreenTheme hands off
+      to the normal theme once the splash exits.
+    -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">#ffffff</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

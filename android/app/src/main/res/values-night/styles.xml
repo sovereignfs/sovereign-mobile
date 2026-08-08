@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      Dark-mode override: only the splash background color differs (the
+      manifest theme_color / the ui package's dark surface token — see
+      docs/store-listing.md and sovereign/packages/ui's tokens). The icon
+      itself stays the default adaptive launcher icon (dark square, white
+      "S") — its square nearly disappears into this near-black background,
+      same tradeoff sovereign/scripts/generate-splash.ts's inverted dark
+      splash mark avoids for the full custom bitmap on iOS, but the glyph
+      itself stays clearly visible, and Android's SplashScreen API doesn't
+      support swapping the icon by theme without a second maintained
+      drawable — not worth it for a screen shown for well under a second.
+    -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#09090b</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+</resources>

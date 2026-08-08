@@ -1,9 +1,11 @@
 package fs.sovereign.mobile;
 
+import android.os.Bundle;
 import android.view.KeyEvent;
 import android.webkit.WebView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.splashscreen.SplashScreen;
 import com.getcapacitor.BridgeActivity;
 import java.util.function.Consumer;
 
@@ -41,6 +43,21 @@ public class MainActivity extends BridgeActivity {
 
     ActivityResultLauncher<String> getNotificationPermissionLauncher() {
         return notificationPermissionLauncher;
+    }
+
+    /**
+     * {@code SplashScreen.installSplashScreen(this)} must run before {@code
+     * super.onCreate()} (and before any {@code setContentView()}, which
+     * {@link BridgeActivity#onCreate} does internally) — that's the
+     * androidx.core.splashscreen contract, and skipping it entirely is what
+     * left the splash screen showing a bare, unbranded window on real
+     * devices: see values/styles.xml's AppTheme.NoActionBarLaunch doc
+     * comment for the full diagnosis.
+     */
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        SplashScreen.installSplashScreen(this);
+        super.onCreate(savedInstanceState);
     }
 
     @Override
